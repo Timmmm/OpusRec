@@ -17,6 +17,13 @@
 #include <thread>
 #include <chrono>
 
+// libwebm
+#include <mkvparser/mkvparser.h>
+#include <mkvparser/mkvreader.h>
+#include <mkvmuxer/mkvmuxer.h>
+#include <mkvmuxer/mkvmuxertypes.h>
+#include <mkvmuxer/mkvwriter.h>
+
 using namespace std;
 using namespace std::chrono_literals;
 
@@ -103,6 +110,7 @@ static void overflow_callback(SoundIoInStream* instream)
 
 static void backend_disconnect_callback(SoundIo* soundio, int err)
 {
+	(void)soundio;
 	cerr << "Backend disconnected: " << soundio_strerror(err) << endl;
 	exit(1);
 }
@@ -327,6 +335,87 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 
 	// Destroy encoder.
 	opus_encoder_destroy(enc);
+
+	// Write shit to a webm file.
+	mkvmuxer::MkvWriter writer;
+
+	if (!writer.Open(outfile.c_str()))
+	{
+		cerr << "Error opening output file" << endl;
+		return;
+	}
+
+	// Set Segment element attributes
+	mkvmuxer::Segment muxer_segment;
+	if (!muxer_segment.Init(&writer))
+	{
+		cerr << "Could not initialise muxer segment. Whatever that means." << endl;
+		return;
+	}
+
+	muxer_segment.AccurateClusterDuration(true); // ??
+	muxer_segment.UseFixedSizeClusterTimecode(true); // ??
+	muxer_segment.set_mode(mkvmuxer::Segment::kFile); // I guess. Who needs documentation anyway?
+
+//	muxer_segment.SetChunking(true, chunk_name);
+//	muxer_segment.set_max_cluster_duration(max_cluster_duration);
+//	muxer_segment.set_max_cluster_size(max_cluster_size);
+	muxer_segment.OutputCues(true); // ??
+
+	mkvmuxer::SegmentInfo* const info = muxer_segment.GetSegmentInfo();
+	info->set_timecode_scale(1000); // ??
+	info->set_writing_app("OpusRec");
+
+	// There are *tags* or something too. Anyway...
+
+	// Add an audio track.
+	uint64_t aud_track = muxer_segment.AddAudioTrack(samplingRate, channels, 0); // 0 means "next available" I think.
+	if (aud_track == 0)
+	{
+		cerr << "Could not add audio track." << endl;
+		return;
+	}
+	mkvmuxer::AudioTrack* audio = static_cast<mkvmuxer::AudioTrack*>(muxer_segment.GetTrackByNumber(aud_track));
+	if (audio == nullptr)
+	{
+		cerr << "Could not get audio track." << endl;
+		return;
+	}
+
+	audio->set_name("Left");
+	audio->set_codec_id(mkvmuxer::Tracks::kOpusCodecId);
+
+	audio->set_bit_depth(16);
+
+	audio->set_codec_delay(0);
+	audio->set_seek_pre_roll(0);
+
+	for (;;)
+	{
+		mkvmuxer::Frame muxer_frame;
+		if (!muxer_frame.Init(packet, len))
+			return;
+		muxer_frame.set_track_number(aud_track);
+		//          muxer_frame.set_discard_padding(block->GetDiscardPadding()); ???
+		muxer_frame.set_timestamp(0); // In nanoseconds?
+		muxer_frame.set_is_key(false);
+		if (!muxer_segment.AddGenericFrame(&muxer_frame))
+		{
+			cerr << "Could not add frame." << endl;
+			return;
+		}
+
+	}
+
+	muxer_segment.set_duration(10000.0);
+	if (!muxer_segment.Finalize())
+	{
+		cerr << "Finalization of segment failed." << endl;
+		return;
+	}
+
+	writer.Close();
+
 
 	// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
 	// you will lose up to 1 second of recorded audio data. In non-example code,
