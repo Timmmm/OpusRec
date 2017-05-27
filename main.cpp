@@ -192,22 +192,148 @@ void printInputDevices(SoundIo* soundio)
 	}
 }
 
+void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, int channels, string outfile)
+{
+	// Find the device.
+	std::vector<int> selected_devices;
+
+	for (int i = 0; i < soundio_input_device_count(soundio); ++i)
+	{
+		SoundIoDevice* device = soundio_get_input_device(soundio, i);
+		if (device == nullptr)
+		{
+			cerr << "Error getting device: " << i << endl;
+			return;
+		}
+
+		if (device->is_raw == is_raw && (device_id.empty() || device->id == device_id))
+			selected_devices.push_back(i);
+
+		soundio_device_unref(device);
+	}
+
+	if (selected_devices.size() != 1)
+	{
+		cerr << "Device not found, or too many devices: " << device_id << endl;
+		return;
+	}
+
+	SoundIoDevice* device = soundio_get_input_device(soundio, selected_devices[0]);
+	if (device == nullptr)
+	{
+		cerr << "Error getting device 0" << endl;
+		return;
+	}
+
+	cout << "Device: " << device->name << (device->is_raw ? " raw" : " not raw") << endl;
+
+	if (device->probe_error)
+	{
+		cerr << "Unable to probe device: " << soundio_strerror(device->probe_error) << endl;
+		return;
+	}
+
+	soundio_device_sort_channel_layouts(device);
+
+	SoundIoFormat fmt = SoundIoFormatS16LE;
+
+	// Open the output file.
+	FILE* out_f = fopen(outfile.c_str(), "wb");
+	if (out_f == nullptr)
+	{
+		cerr << "Unable to open " << outfile << ": " << strerror(errno) << endl;
+		return;
+	}
+
+	// Open the input stream.
+	SoundIoInStream* instream = soundio_instream_create(device);
+	if (instream == nullptr)
+	{
+		cerr << "Out of memory" << endl;
+		return;
+	}
+
+	cout << "Default format: " << instream->format << " sample rate: " << instream->sample_rate << endl;
+
+	RecordContext rc;
+
+	instream->format = fmt;
+	instream->sample_rate = samplingRate;
+	instream->read_callback = read_callback;
+	instream->overflow_callback = overflow_callback;
+	instream->userdata = &rc;
+	instream->layout = *soundio_channel_layout_get_default(channels);
+
+	cout << "Opening with format: " << instream->format << " sample rate: " << instream->sample_rate << endl;
+
+	int err = soundio_instream_open(instream);
+	if (err != SoundIoErrorNone)
+	{
+		cerr << "Unable to open input stream: " << soundio_strerror(err) << endl;
+		return;
+	}
+
+	cerr << instream->layout.name << samplingRate << " Hz " << soundio_format_string(fmt) << " interleaved" << endl;
+
+	const int ring_buffer_duration_seconds = 30;
+	int capacity = ring_buffer_duration_seconds * instream->sample_rate * instream->bytes_per_frame;
+	rc.ring_buffer = soundio_ring_buffer_create(soundio, capacity);
+	if (rc.ring_buffer == nullptr)
+	{
+		cerr << "Out of memory" << endl;
+		return;
+	}
+
+	err = soundio_instream_start(instream);
+	if (err != SoundIoErrorNone)
+	{
+		cerr <<  "Unable to start input device: " << soundio_strerror(err) << endl;
+		return;
+	}
+
+	// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
+	// you will lose up to 1 second of recorded audio data. In non-example code,
+	// consider a better shutdown strategy.
+	for (;;)
+	{
+		soundio_flush_events(soundio);
+		this_thread::sleep_for(1s);
+
+		int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
+		char* read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
+
+		size_t amt = fwrite(read_buf, 1, fill_bytes, out_f);
+
+		if ((int)amt != fill_bytes)
+		{
+			cerr << "Write error: " << strerror(errno) << endl;
+			return;
+		}
+
+		soundio_ring_buffer_advance_read_ptr(rc.ring_buffer, fill_bytes);
+	}
+
+	soundio_instream_destroy(instream);
+	soundio_device_unref(device);
+}
+
 static const char USAGE[] =
 R"(OpusRec
 
     Usage:
-      OpusRec record [--raw] [--rate=<hz>] [--depth=<depth>] [--channels=<channels>] [--backend=<backend>] <device_id> <output_file>
-      OpusRec devices
+      OpusRec record [--raw] [--rate=<hz>] [--depth=<depth>] [--channels=<channels>] [--backend=<backend>] [--device=<device_id>] <output_file>
+      OpusRec devices [--backend=<backend>]
       OpusRec (-h | --help)
       OpusRec --version
 
     Options:
       -h --help              Show this screen.
-      --rate=<hz>            Set the sampling rate in Hz
-      --depth=<depth>        Set the sample depth in bits
-      --channels=<channels>  Set the number of channels
-      --backend=<backend>    Set the audio system to use
-      --raw                  Use the raw input from the device
+      --raw                  Use the raw input from the device.
+      --rate=<hz>            Set the sampling rate in Hz. Defaults to 44100.
+      --depth=<depth>        Set the sample depth in bits. Defaults to 16.
+      --channels=<channels>  Set the number of channels. Defaults to 1 or 2, depending on device support.
+      --backend=<backend>    Set the audio system to use. Defaults to the first one that works.
+      --device=<device_id>   Select a specific device from its device ID (use `OpusRec devices`). Required if there is more than one device.
 )";
 
 int main(int argc, char* argv[])
@@ -219,13 +345,11 @@ int main(int argc, char* argv[])
 	                       true,             // Show help if requested
 	                       "OpusRec 1.0");  // Version string
 
-	// Print the arguments. Todo: remove.
-//	for(auto const& arg : args) {
-//		std::cout << arg.first << ": " << arg.second << std::endl;
-//	}
-
+	for(auto const& arg : args) {
+		std::cout << arg.first << ": " << arg.second << std::endl;
+	}
 	enum SoundIoBackend backend = SoundIoBackendNone;
-	string backendOpt = args["backed"] ? args["backend"].asString() : "";
+	string backendOpt = args["--backend"].isString() ? args["--backend"].asString() : "";
 	if (backendOpt != "")
 	{
 		if (backendOpt == "dummy")
@@ -242,157 +366,50 @@ int main(int argc, char* argv[])
 			backend = SoundIoBackendWasapi;
 		else
 		{
-			fprintf(stderr, "Invalid backend\n");
+			cerr << "Invalid backend: " << backendOpt << endl;
+			cerr << "Valid options: dummy, alsa, pulseaudio, jack, coreaudio, wasapi" << endl;
 			return 1;
 		}
 	}
 
 	// Initialise soundio.
-	RecordContext rc;
 	SoundIo* soundio = soundio_create();
 	if (soundio == nullptr)
 	{
-		cerr << "Out of memory" << endl;
+		cerr << "Error initialising libsoundio: Out of memory" << endl;
 		return 1;
 	}
 
 	soundio->on_backend_disconnect = backend_disconnect_callback;
 
 	cerr << "Connecting to backend: " << (backendOpt == "" ? "default" : backendOpt) << endl;
+
 	int err = (backend == SoundIoBackendNone) ? soundio_connect(soundio) : soundio_connect_backend(soundio, backend);
 	if (err)
 	{
-		cerr << "Error connecting: " << soundio_strerror(err) << endl;
+		cerr << "Error connecting to backend: " << soundio_strerror(err) << endl;
 		return 1;
 	}
-	cerr << "Flushing events" << endl;
+
 	soundio_flush_events(soundio);
 
 	if (args["devices"].asBool())
 	{
-		cerr << "Printing devices" << endl;
 		printInputDevices(soundio);
 	}
 	else if (args["record"].asBool())
 	{
-		string device_id = args["<device_id>"].asString();
-		bool is_raw = args["raw"].asBool();
-		int samplingRate = args["<hz>"] ? args["<hz>"].asLong() : 44100;
-		int channels = args["<channels>"].asLong();
-		string outfile = args["<output_file>"].asString();
+		string device_id = args["--device"].isString() ? args["--device"].asString() : "";
+		bool is_raw = args["--raw"].isBool() ? args["--raw"].asBool() : false;
+		int samplingRate = args["--rate"] ? args["--rate"].asLong() : 44100;
+		int channels = args["--channels"].isLong() ? args["--channels"].asLong() : 2;
+		string outfile = args["<output_file>"].isString() ? args["<output_file>"].asString() : "";
+		cout << outfile << endl;
 
-		// Find the device.
-		struct SoundIoDevice* selected_device = NULL;
-		for (int i = 0; i < soundio_input_device_count(soundio); ++i)
-		{
-			struct SoundIoDevice *device = soundio_get_input_device(soundio, i);
-			cout << "Checking device id: " << device->id << ", " << device->is_raw <<
-			        " against " << device_id << ", " << is_raw << endl;
-			if (device->is_raw == is_raw && device->id == device_id)
-			{
-				selected_device = device;
-				break;
-			}
-			soundio_device_unref(device);
-		}
-
-		if (!selected_device)
-		{
-			cerr << "Invalid device id: " << device_id << endl;
-			return 1;
-		}
-
-		cout << "Device: " << selected_device->name << (selected_device->is_raw ? " raw" : " not raw") << endl;
-
-		if (selected_device->probe_error)
-		{
-			cerr << "Unable to probe device: " << soundio_strerror(selected_device->probe_error) << endl;
-			return 1;
-		}
-
-		soundio_device_sort_channel_layouts(selected_device);
-
-		SoundIoFormat fmt = SoundIoFormatS16LE;
-
-		FILE* out_f = fopen(outfile.c_str(), "wb");
-		if (out_f == nullptr)
-		{
-			cerr << "Unable to open " << outfile << ": " << strerror(errno) << endl;
-			return 1;
-		}
-		SoundIoInStream* instream = soundio_instream_create(selected_device);
-		if (instream == nullptr)
-		{
-			cerr << "Out of memory" << endl;
-			return 1;
-		}
-
-		cout << "Default format: " << instream->format << " sample rate: " << instream->sample_rate << endl;
-
-		instream->format = fmt;
-		instream->sample_rate = samplingRate;
-		instream->read_callback = read_callback;
-		instream->overflow_callback = overflow_callback;
-		instream->userdata = &rc;
-		instream->layout = *soundio_channel_layout_get_default(channels);
-
-		cout << "Opening with format: " << instream->format << " sample rate: " << instream->sample_rate << endl;
-		err = soundio_instream_open(instream);
-		if (err != SoundIoErrorNone)
-		{
-			cerr << "Unable to open input stream: " << soundio_strerror(err) << endl;
-			return 1;
-		}
-
-		cerr << instream->layout.name << samplingRate << " Hz " << soundio_format_string(fmt) << " interleaved" << endl;
-
-		const int ring_buffer_duration_seconds = 30;
-		int capacity = ring_buffer_duration_seconds * instream->sample_rate * instream->bytes_per_frame;
-		rc.ring_buffer = soundio_ring_buffer_create(soundio, capacity);
-		if (rc.ring_buffer == nullptr)
-		{
-			cerr << "Out of memory" << endl;
-			return 1;
-		}
-
-		err = soundio_instream_start(instream);
-		if (err != SoundIoErrorNone)
-		{
-			cerr <<  "Unable to start input device: " << soundio_strerror(err) << endl;
-			return 1;
-		}
-
-		// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
-		// you will lose up to 1 second of recorded audio data. In non-example code,
-		// consider a better shutdown strategy.
-		for (;;)
-		{
-			soundio_flush_events(soundio);
-			this_thread::sleep_for(1s);
-
-			int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
-			char* read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
-
-			size_t amt = fwrite(read_buf, 1, fill_bytes, out_f);
-
-			if ((int)amt != fill_bytes)
-			{
-				cerr << "Write error: " << strerror(errno) << endl;
-				return 1;
-			}
-
-			soundio_ring_buffer_advance_read_ptr(rc.ring_buffer, fill_bytes);
-		}
-
-		soundio_instream_destroy(instream);
-		soundio_device_unref(selected_device);
+		record(soundio, device_id, is_raw, samplingRate, channels, outfile);
 	}
 
 	soundio_destroy(soundio);
 	return 0;
 }
-
-
-
-
 
