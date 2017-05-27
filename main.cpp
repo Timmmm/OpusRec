@@ -8,6 +8,7 @@
 #include <errno.h>
 
 #include <docopt.h>
+
 #include <string>
 #include <iostream>
 #include <map>
@@ -41,7 +42,7 @@ static void read_callback(struct SoundIoInStream* instream, int frame_count_min,
 	int free_count = free_bytes / instream->bytes_per_frame;
 	if (free_count < frame_count_min)
 	{
-		fprintf(stderr, "ring buffer overflow\n");
+		cerr << "Ring buffer overflow" << endl;
 		exit(1);
 	}
 
@@ -52,7 +53,7 @@ static void read_callback(struct SoundIoInStream* instream, int frame_count_min,
 		int frame_count = frames_left;
 		if ((err = soundio_instream_begin_read(instream, &areas, &frame_count)))
 		{
-			fprintf(stderr, "begin read error: %s", soundio_strerror(err));
+			cerr << "Begin read error: " << soundio_strerror(err) << endl;
 			exit(1);
 		}
 
@@ -78,7 +79,7 @@ static void read_callback(struct SoundIoInStream* instream, int frame_count_min,
 		}
 		if ((err = soundio_instream_end_read(instream)))
 		{
-			fprintf(stderr, "end read error: %s", soundio_strerror(err));
+			cerr << "End read error: " << soundio_strerror(err) << endl;
 			exit(1);
 		}
 
@@ -94,69 +95,78 @@ static void read_callback(struct SoundIoInStream* instream, int frame_count_min,
 static void overflow_callback(struct SoundIoInStream *instream)
 {
 	static int count = 0;
-	fprintf(stderr, "overflow %d\n", ++count);
+	cerr << "Overflow " << ++count << endl;
 }
 
 static void printChannelLayout(const SoundIoChannelLayout* layout)
 {
-	if (layout->name)
+	if (layout->name != nullptr)
 	{
-		fprintf(stderr, "%s", layout->name);
+		cerr << layout->name << endl;
 	}
 	else
 	{
-		fprintf(stderr, "%s", soundio_get_channel_name(layout->channels[0]));
-		for (int i = 1; i < layout->channel_count; ++i)
-		{
-			fprintf(stderr, ", %s", soundio_get_channel_name(layout->channels[i]));
-		}
+		for (int i = 0; i < layout->channel_count; ++i)
+			cerr << soundio_get_channel_name(layout->channels[i]) << endl;
 	}
 }
 
-bool short_output = false;
-void printDevice(SoundIoDevice* device, bool is_default)
+static void printDevice(SoundIoDevice* device, bool is_default)
 {
-	const char *default_str = is_default ? " (default)" : "";
-	const char *raw_str = device->is_raw ? " (raw)" : "";
-	fprintf(stderr, "%s%s%s\n", device->name, default_str, raw_str);
-	if (short_output)
-		return;
-	fprintf(stderr, "  id: %s\n", device->id);
-	if (device->probe_error) {
-		fprintf(stderr, "  probe error: %s\n", soundio_strerror(device->probe_error));
-	} else {
-		fprintf(stderr, "  channel layouts:\n");
-		for (int i = 0; i < device->layout_count; i += 1) {
-			fprintf(stderr, "    ");
-			printChannelLayout(&device->layouts[i]);
-			fprintf(stderr, "\n");
-		}
-		if (device->current_layout.channel_count > 0) {
-			fprintf(stderr, "  current layout: ");
-			printChannelLayout(&device->current_layout);
-			fprintf(stderr, "\n");
-		}
-		fprintf(stderr, "  sample rates:\n");
-		for (int i = 0; i < device->sample_rate_count; i += 1) {
-			struct SoundIoSampleRateRange *range = &device->sample_rates[i];
-			fprintf(stderr, "    %d - %d\n", range->min, range->max);
-		}
-		if (device->sample_rate_current)
-			fprintf(stderr, "  current sample rate: %d\n", device->sample_rate_current);
-		fprintf(stderr, "  formats: ");
-		for (int i = 0; i < device->format_count; i += 1) {
-			const char *comma = (i == device->format_count - 1) ? "" : ", ";
-			fprintf(stderr, "%s%s", soundio_format_string(device->formats[i]), comma);
-		}
-		fprintf(stderr, "\n");
-		if (device->current_format != SoundIoFormatInvalid)
-			fprintf(stderr, "  current format: %s\n", soundio_format_string(device->current_format));
-		fprintf(stderr, "  min software latency: %0.8f sec\n", device->software_latency_min);
-		fprintf(stderr, "  max software latency: %0.8f sec\n", device->software_latency_max);
-		if (device->software_latency_current != 0.0)
-			fprintf(stderr, "  current software latency: %0.8f sec\n", device->software_latency_current);
+	const char* default_str = is_default ? " (default)" : "";
+	const char* raw_str = device->is_raw ? " (raw)" : "";
+	cerr << device->name << default_str << raw_str << endl;
+
+	cerr << "  id: " << device->id << endl;
+	if (device->probe_error)
+	{
+		cerr << "  probe error: " << soundio_strerror(device->probe_error) << endl;
 	}
-	fprintf(stderr, "\n");
+	else
+	{
+		cerr << "  channel layouts:" << endl;
+		for (int i = 0; i < device->layout_count; ++i)
+		{
+			cerr << "    ";
+			printChannelLayout(&device->layouts[i]);
+			cerr << endl;
+		}
+		if (device->current_layout.channel_count > 0)
+		{
+			cerr << "  current layout: ";
+			printChannelLayout(&device->current_layout);
+			cerr << endl;
+		}
+
+		cerr << "  sample rates:" << endl;
+		for (int i = 0; i < device->sample_rate_count; ++i)
+		{
+			SoundIoSampleRateRange *range = &device->sample_rates[i];
+			cerr << "    " << range->min << " - " << range->max << endl;
+		}
+
+		if (device->sample_rate_current != 0)
+			cerr << "  current sample rate: " << device->sample_rate_current << endl;
+
+		cerr << "  formats: ";
+		for (int i = 0; i < device->format_count; ++i)
+		{
+			cerr << soundio_format_string(device->formats[i]);
+			if (i < device->format_count - 1)
+				cerr << ",";
+		}
+		cerr << endl;
+
+		if (device->current_format != SoundIoFormatInvalid)
+			cerr << "  current format: " << soundio_format_string(device->current_format) << endl;
+
+		cerr << "  min software latency: " << device->software_latency_min << endl;
+		cerr << "  max software latency: " << device->software_latency_max << endl;
+
+		if (device->software_latency_current != 0.0)
+			cerr << "  current software latency: " << device->software_latency_current << endl;
+	}
+	cerr << endl;
 }
 
 // Print a list of all the input devices.
@@ -237,18 +247,16 @@ int main(int argc, char* argv[])
 	SoundIo* soundio = soundio_create();
 	if (soundio == nullptr)
 	{
-		fprintf(stderr, "out of memory\n");
+		cerr << "Out of memory" << endl;
 		return 1;
 	}
 	int err = (backend == SoundIoBackendNone) ? soundio_connect(soundio) : soundio_connect_backend(soundio, backend);
 	if (err)
 	{
-		fprintf(stderr, "error connecting: %s", soundio_strerror(err));
+		cerr << "Error connecting: " << soundio_strerror(err) << endl;
 		return 1;
 	}
 	soundio_flush_events(soundio);
-
-
 
 	if (args["devices"].asBool())
 	{
@@ -279,7 +287,7 @@ int main(int argc, char* argv[])
 
 		if (!selected_device)
 		{
-			fprintf(stderr, "Invalid device id: %s\n", device_id.c_str());
+			cerr << "Invalid device id: " << device_id << endl;
 			return 1;
 		}
 
@@ -288,7 +296,7 @@ int main(int argc, char* argv[])
 
 		if (selected_device->probe_error)
 		{
-			fprintf(stderr, "Unable to probe device: %s\n", soundio_strerror(selected_device->probe_error));
+			cerr << "Unable to probe device: " << soundio_strerror(selected_device->probe_error) << endl;
 			return 1;
 		}
 
@@ -299,13 +307,13 @@ int main(int argc, char* argv[])
 		FILE* out_f = fopen(outfile.c_str(), "wb");
 		if (out_f == nullptr)
 		{
-			fprintf(stderr, "unable to open %s: %s\n", outfile.c_str(), strerror(errno));
+			cerr << "Unable to open " << outfile << ": " << strerror(errno) << endl;
 			return 1;
 		}
 		SoundIoInStream* instream = soundio_instream_create(selected_device);
 		if (instream == nullptr)
 		{
-			fprintf(stderr, "out of memory\n");
+			cerr << "Out of memory" << endl;
 			return 1;
 		}
 
@@ -319,7 +327,7 @@ int main(int argc, char* argv[])
 
 		cout << "Opening with format: " << instream->format << " sample rate: " << instream->sample_rate << endl;
 		if ((err = soundio_instream_open(instream))) {
-			fprintf(stderr, "unable to open input stream: %s", soundio_strerror(err));
+			cerr << "Unable to open input stream: " << soundio_strerror(err) << endl;
 			return 1;
 		}
 		fprintf(stderr, "%s %dHz %s interleaved\n",
@@ -328,11 +336,11 @@ int main(int argc, char* argv[])
 		int capacity = ring_buffer_duration_seconds * instream->sample_rate * instream->bytes_per_frame;
 		rc.ring_buffer = soundio_ring_buffer_create(soundio, capacity);
 		if (!rc.ring_buffer) {
-			fprintf(stderr, "out of memory\n");
+			cerr << "Out of memory" << endl;
 			return 1;
 		}
 		if ((err = soundio_instream_start(instream))) {
-			fprintf(stderr, "unable to start input device: %s", soundio_strerror(err));
+			cerr <<  "Unable to start input device: " << soundio_strerror(err) << endl;
 			return 1;
 		}
 		// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
@@ -346,15 +354,13 @@ int main(int argc, char* argv[])
 			char *read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
 			size_t amt = fwrite(read_buf, 1, fill_bytes, out_f);
 			if ((int)amt != fill_bytes) {
-				fprintf(stderr, "write error: %s\n", strerror(errno));
+				cerr << "Write error: " << strerror(errno) << endl;
 				return 1;
 			}
 			soundio_ring_buffer_advance_read_ptr(rc.ring_buffer, fill_bytes);
 		}
 		soundio_instream_destroy(instream);
 		soundio_device_unref(selected_device);
-
-
 	}
 
 	soundio_destroy(soundio);
