@@ -30,7 +30,7 @@ static int min_int(int a, int b)
 }
 
 // This callback is called when libsoundio has some auto data to send us.
-static void read_callback(struct SoundIoInStream* instream, int frame_count_min, int frame_count_max)
+static void read_callback(SoundIoInStream* instream, int frame_count_min, int frame_count_max)
 {
 	// Recover the RecordContext object.
 	RecordContext* rc = static_cast<RecordContext*>(instream->userdata);
@@ -92,10 +92,17 @@ static void read_callback(struct SoundIoInStream* instream, int frame_count_min,
 	soundio_ring_buffer_advance_write_ptr(rc->ring_buffer, advance_bytes);
 }
 
-static void overflow_callback(struct SoundIoInStream *instream)
+static void overflow_callback(SoundIoInStream* instream)
 {
+	(void)instream;
 	static int count = 0;
 	cerr << "Overflow " << ++count << endl;
+}
+
+static void backend_disconnect_callback(SoundIo* soundio, int err)
+{
+	cerr << "Backend disconnected: " << soundio_strerror(err) << endl;
+	exit(1);
 }
 
 static void printChannelLayout(const SoundIoChannelLayout* layout)
@@ -213,11 +220,9 @@ int main(int argc, char* argv[])
 	                       "OpusRec 1.0");  // Version string
 
 	// Print the arguments. Todo: remove.
-	for(auto const& arg : args) {
-		std::cout << arg.first << ": " << arg.second << std::endl;
-	}
-
-	char* exe = argv[0];
+//	for(auto const& arg : args) {
+//		std::cout << arg.first << ": " << arg.second << std::endl;
+//	}
 
 	enum SoundIoBackend backend = SoundIoBackendNone;
 	string backendOpt = args["backed"] ? args["backend"].asString() : "";
@@ -250,25 +255,31 @@ int main(int argc, char* argv[])
 		cerr << "Out of memory" << endl;
 		return 1;
 	}
+
+	soundio->on_backend_disconnect = backend_disconnect_callback;
+
+	cerr << "Connecting to backend: " << (backendOpt == "" ? "default" : backendOpt) << endl;
 	int err = (backend == SoundIoBackendNone) ? soundio_connect(soundio) : soundio_connect_backend(soundio, backend);
 	if (err)
 	{
 		cerr << "Error connecting: " << soundio_strerror(err) << endl;
 		return 1;
 	}
+	cerr << "Flushing events" << endl;
 	soundio_flush_events(soundio);
 
 	if (args["devices"].asBool())
 	{
+		cerr << "Printing devices" << endl;
 		printInputDevices(soundio);
 	}
 	else if (args["record"].asBool())
 	{
 		string device_id = args["<device_id>"].asString();
 		bool is_raw = args["raw"].asBool();
+		int samplingRate = args["<hz>"] ? args["<hz>"].asLong() : 44100;
+		int channels = args["<channels>"].asLong();
 		string outfile = args["<output_file>"].asString();
-		int samplingRate = 44100; // args["<hz>"] ? args["<hz>"].asLong() : 48000; // Why doesn't this work?
-//		int channels = args["<channels>"].asLong();
 
 		// Find the device.
 		struct SoundIoDevice* selected_device = NULL;
@@ -292,7 +303,6 @@ int main(int argc, char* argv[])
 		}
 
 		cout << "Device: " << selected_device->name << (selected_device->is_raw ? " raw" : " not raw") << endl;
-
 
 		if (selected_device->probe_error)
 		{
@@ -324,25 +334,34 @@ int main(int argc, char* argv[])
 		instream->read_callback = read_callback;
 		instream->overflow_callback = overflow_callback;
 		instream->userdata = &rc;
+		instream->layout = *soundio_channel_layout_get_default(channels);
 
 		cout << "Opening with format: " << instream->format << " sample rate: " << instream->sample_rate << endl;
-		if ((err = soundio_instream_open(instream))) {
+		err = soundio_instream_open(instream);
+		if (err != SoundIoErrorNone)
+		{
 			cerr << "Unable to open input stream: " << soundio_strerror(err) << endl;
 			return 1;
 		}
-		fprintf(stderr, "%s %dHz %s interleaved\n",
-		        instream->layout.name, samplingRate, soundio_format_string(fmt));
+
+		cerr << instream->layout.name << samplingRate << " Hz " << soundio_format_string(fmt) << " interleaved" << endl;
+
 		const int ring_buffer_duration_seconds = 30;
 		int capacity = ring_buffer_duration_seconds * instream->sample_rate * instream->bytes_per_frame;
 		rc.ring_buffer = soundio_ring_buffer_create(soundio, capacity);
-		if (!rc.ring_buffer) {
+		if (rc.ring_buffer == nullptr)
+		{
 			cerr << "Out of memory" << endl;
 			return 1;
 		}
-		if ((err = soundio_instream_start(instream))) {
+
+		err = soundio_instream_start(instream);
+		if (err != SoundIoErrorNone)
+		{
 			cerr <<  "Unable to start input device: " << soundio_strerror(err) << endl;
 			return 1;
 		}
+
 		// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
 		// you will lose up to 1 second of recorded audio data. In non-example code,
 		// consider a better shutdown strategy.
@@ -350,15 +369,21 @@ int main(int argc, char* argv[])
 		{
 			soundio_flush_events(soundio);
 			this_thread::sleep_for(1s);
+
 			int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
-			char *read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
+			char* read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
+
 			size_t amt = fwrite(read_buf, 1, fill_bytes, out_f);
-			if ((int)amt != fill_bytes) {
+
+			if ((int)amt != fill_bytes)
+			{
 				cerr << "Write error: " << strerror(errno) << endl;
 				return 1;
 			}
+
 			soundio_ring_buffer_advance_read_ptr(rc.ring_buffer, fill_bytes);
 		}
+
 		soundio_instream_destroy(instream);
 		soundio_device_unref(selected_device);
 	}
