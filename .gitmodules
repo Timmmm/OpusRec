@@ -7,3 +7,6 @@
 [submodule "libsoundio"]
 	path = libsoundio
 	url = https://github.com/andrewrk/libsoundio
+[submodule "libwebm"]
+	path = libwebm
+	url = https://github.com/webmproject/libwebm

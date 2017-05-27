@@ -1,7 +1,9 @@
 // This is a simple program to record from a microphone to an Opus-encoded file.
 
 #include <soundio/soundio.h>
-#include <stdio.h>
+
+#include <opus.h>
+
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -290,6 +292,41 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 		cerr <<  "Unable to start input device: " << soundio_strerror(err) << endl;
 		return;
 	}
+
+	// Opus encoder initialisation.
+	int error = OPUS_INTERNAL_ERROR;
+	OpusEncoder* enc = opus_encoder_create(samplingRate, channels, OPUS_APPLICATION_AUDIO, &error);
+	if (error != OPUS_OK)
+	{
+		cerr << "Error initialising Opus: " << error << endl;
+		return;
+	}
+
+	// Set bitrate etc.
+	opus_encoder_ctl(enc, OPUS_SET_BITRATE(64000)); // In bits per second
+	opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(8)); // 0-10.
+	opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_AUTO)); // Can set to voice or music manually.
+
+	// Encode a frame. This has to be exactly one frame.
+	// A frame can be 2.5, 5, 10, 20, 40 or 60 ms of audio.
+	opus_int16 audio_frame[2880];
+
+	const int max_packet = 1024 * 128;
+	uint8_t packet[max_packet];
+	opus_int32 len = opus_encode(enc, audio_frame, 2880, packet, max_packet);
+	if (len < 0)
+	{
+		// Error.
+		cerr << "Opus encoder error" << endl;
+		return;
+	}
+	if (len <= 2)
+	{
+		// Ignore packet (it's silent).
+	}
+
+	// Destroy encoder.
+	opus_encoder_destroy(enc);
 
 	// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
 	// you will lose up to 1 second of recorded audio data. In non-example code,
