@@ -11,8 +11,11 @@
 #include <string>
 #include <iostream>
 #include <map>
+#include <thread>
+#include <chrono>
 
 using namespace std;
+using namespace std::chrono_literals;
 
 // This is passed to the read callback in the `void* userdata` pointer.
 struct RecordContext
@@ -335,9 +338,10 @@ int main(int argc, char* argv[])
 		// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
 		// you will lose up to 1 second of recorded audio data. In non-example code,
 		// consider a better shutdown strategy.
-		for (;;) {
+		for (;;)
+		{
 			soundio_flush_events(soundio);
-			sleep(1);
+			this_thread::sleep_for(1s);
 			int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
 			char *read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
 			size_t amt = fwrite(read_buf, 1, fill_bytes, out_f);

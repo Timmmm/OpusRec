@@ -2,10 +2,36 @@ import qbs
 
 CppApplication {
 	name: "OpusRec"
-	files: "main.cpp"
+	files: [
+		"docopt/docopt.cpp",
+		"docopt/docopt.h",
+		"docopt/docopt_private.h",
+		"docopt/docopt_util.h",
+		"docopt/docopt_value.h",
 
-	Properties {
-		condition: qbs.targetOS.contains("windows")
-		cpp.includePaths: ["libsoundio-1.1.0"]
-	}
+		"libsoundio-1.1.0/soundio/*.h",
+
+		"main.cpp",
+
+	]
+
+	cpp.cxxLanguageVersion: "c++14"
+
+	cpp.includePaths: [
+		"docopt",
+		"opus",
+		"libsoundio-1.1.0",
+	]
+
+	cpp.libraryPaths: [
+		"libsoundio-1.1.0/i686",
+	]
+
+	cpp.staticLibraries: [
+		"soundio",
+	]
+
+	cpp.defines: [
+		"SOUNDIO_STATIC_LIBRARY",
+	]
 }
