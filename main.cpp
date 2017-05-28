@@ -301,122 +301,6 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 		return;
 	}
 
-	// Opus encoder initialisation.
-	int error = OPUS_INTERNAL_ERROR;
-	OpusEncoder* enc = opus_encoder_create(samplingRate, channels, OPUS_APPLICATION_AUDIO, &error);
-	if (error != OPUS_OK)
-	{
-		cerr << "Error initialising Opus: " << error << endl;
-		return;
-	}
-
-	// Set bitrate etc.
-	opus_encoder_ctl(enc, OPUS_SET_BITRATE(64000)); // In bits per second
-	opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(8)); // 0-10.
-	opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_AUTO)); // Can set to voice or music manually.
-
-	// Encode a frame. This has to be exactly one frame.
-	// A frame can be 2.5, 5, 10, 20, 40 or 60 ms of audio.
-	opus_int16 audio_frame[2880];
-
-	const int max_packet = 1024 * 128;
-	uint8_t packet[max_packet];
-	opus_int32 len = opus_encode(enc, audio_frame, 2880, packet, max_packet);
-	if (len < 0)
-	{
-		// Error.
-		cerr << "Opus encoder error" << endl;
-		return;
-	}
-	if (len <= 2)
-	{
-		// Ignore packet (it's silent).
-	}
-
-	// Destroy encoder.
-	opus_encoder_destroy(enc);
-
-	// Write shit to a webm file.
-	mkvmuxer::MkvWriter writer;
-
-	if (!writer.Open(outfile.c_str()))
-	{
-		cerr << "Error opening output file" << endl;
-		return;
-	}
-
-	// Set Segment element attributes
-	mkvmuxer::Segment muxer_segment;
-	if (!muxer_segment.Init(&writer))
-	{
-		cerr << "Could not initialise muxer segment. Whatever that means." << endl;
-		return;
-	}
-
-	muxer_segment.AccurateClusterDuration(true); // ??
-	muxer_segment.UseFixedSizeClusterTimecode(true); // ??
-	muxer_segment.set_mode(mkvmuxer::Segment::kFile); // I guess. Who needs documentation anyway?
-
-//	muxer_segment.SetChunking(true, chunk_name);
-//	muxer_segment.set_max_cluster_duration(max_cluster_duration);
-//	muxer_segment.set_max_cluster_size(max_cluster_size);
-	muxer_segment.OutputCues(true); // ??
-
-	mkvmuxer::SegmentInfo* const info = muxer_segment.GetSegmentInfo();
-	info->set_timecode_scale(1000); // ??
-	info->set_writing_app("OpusRec");
-
-	// There are *tags* or something too. Anyway...
-
-	// Add an audio track.
-	uint64_t aud_track = muxer_segment.AddAudioTrack(samplingRate, channels, 0); // 0 means "next available" I think.
-	if (aud_track == 0)
-	{
-		cerr << "Could not add audio track." << endl;
-		return;
-	}
-	mkvmuxer::AudioTrack* audio = static_cast<mkvmuxer::AudioTrack*>(muxer_segment.GetTrackByNumber(aud_track));
-	if (audio == nullptr)
-	{
-		cerr << "Could not get audio track." << endl;
-		return;
-	}
-
-	audio->set_name("Left");
-	audio->set_codec_id(mkvmuxer::Tracks::kOpusCodecId);
-
-	audio->set_bit_depth(16);
-
-	audio->set_codec_delay(0);
-	audio->set_seek_pre_roll(0);
-
-	for (;;)
-	{
-		mkvmuxer::Frame muxer_frame;
-		if (!muxer_frame.Init(packet, len))
-			return;
-		muxer_frame.set_track_number(aud_track);
-		//          muxer_frame.set_discard_padding(block->GetDiscardPadding()); ???
-		muxer_frame.set_timestamp(0); // In nanoseconds?
-		muxer_frame.set_is_key(false);
-		if (!muxer_segment.AddGenericFrame(&muxer_frame))
-		{
-			cerr << "Could not add frame." << endl;
-			return;
-		}
-
-	}
-
-	muxer_segment.set_duration(10000.0);
-	if (!muxer_segment.Finalize())
-	{
-		cerr << "Finalization of segment failed." << endl;
-		return;
-	}
-
-	writer.Close();
-
-
 	// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
 	// you will lose up to 1 second of recorded audio data. In non-example code,
 	// consider a better shutdown strategy.
@@ -443,6 +327,203 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	soundio_device_unref(device);
 }
 
+// See https://tools.ietf.org/html/rfc7845 Section 5.1
+//
+// outputGain is Q7.8 in dB, recommended to be 0.
+vector<uint8_t> OpusHeader(uint8_t channelCount, uint16_t preSkipSamples, uint32_t inputSampleRate, uint16_t outputGain)
+{
+	vector<uint8_t> head(19);
+
+	head[0] = 'O';
+	head[1] = 'p';
+	head[2] = 'u';
+	head[3] = 's';
+	head[4] = 'H';
+	head[5] = 'e';
+	head[6] = 'a';
+	head[7] = 'd';
+	head[8] = 1; // Version
+	head[9] = channelCount;
+	head[10] = (preSkipSamples >> 0) & 0xFF;
+	head[11] = (preSkipSamples >> 8) & 0xFF;
+	head[12] = (inputSampleRate >> 0) & 0xFF;
+	head[13] = (inputSampleRate >> 8) & 0xFF;
+	head[14] = (inputSampleRate >> 16) & 0xFF;
+	head[15] = (inputSampleRate >> 24) & 0xFF;
+	head[16] = (outputGain >> 0) & 0xFF;
+	head[17] = (outputGain >> 8) & 0xFF;
+	head[18] = 0; // Mapping family - none.
+
+	return head;
+}
+
+void OpusWebMTest()
+{
+	const int samplingRate = 48000;
+	const int channels = 1;
+
+	const int frameLenMs = 20; // Must be 2.5, 5, 10, 20, 40 or 60.
+
+	// Opus encoder initialisation.
+	int error = OPUS_INTERNAL_ERROR;
+	OpusEncoder* enc = opus_encoder_create(samplingRate, channels, OPUS_APPLICATION_AUDIO, &error);
+	if (error != OPUS_OK)
+	{
+		cerr << "Error initialising Opus: " << error << endl;
+		return;
+	}
+
+	// Set bitrate etc.
+	opus_encoder_ctl(enc, OPUS_SET_BITRATE(32000)); // In bits per second
+	opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(8)); // 0-10.
+	opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_AUTO)); // Can set to voice or music manually.
+
+	double t = 0.0;
+
+	vector<vector<uint8_t>> packets;
+
+	for (int i = 0; i < 100; ++i)
+	{
+		// Encode a frame. This has to be exactly one frame.
+		// A frame can be 2.5, 5, 10, 20, 40 or 60 ms of audio.
+
+		const int frameLen = (48000/1000) * frameLenMs;
+		opus_int16 audio_frame[frameLen];
+		for (int f = 0; f < frameLen; ++f)
+		{
+			double val = sin(t) + cos(2*t);
+			audio_frame[f] = static_cast<opus_int16>(val * 0x1000);
+			t += 0.05;
+		}
+
+		const int max_packet = 1024 * 128;
+		uint8_t packet[max_packet];
+
+		opus_int32 len = opus_encode(enc, audio_frame, frameLen, packet, max_packet);
+		if (len < 0)
+		{
+			// Error.
+			cerr << "Opus encoder error" << endl;
+			return;
+		}
+		if (len <= 2)
+		{
+			// Ignore packet (it's silent).
+		}
+		packets.emplace_back(packet, packet + len);
+	}
+
+	// Destroy encoder.
+	opus_encoder_destroy(enc);
+
+	// Now save the packets using WebM.
+
+	string outfile = "test.webm";
+
+	// Write shit to a webm file.
+	mkvmuxer::MkvWriter writer;
+
+	if (!writer.Open(outfile.c_str()))
+	{
+		cerr << "Error opening output file" << endl;
+		return;
+	}
+
+	// WebM files have one segment.
+	mkvmuxer::Segment muxer_segment;
+	if (!muxer_segment.Init(&writer))
+	{
+		cerr << "Could not initialise muxer segment. Whatever that means." << endl;
+		return;
+	}
+
+//	// Flag whether or not the last frame in each Cluster will have a Duration element in it.
+//	muxer_segment.AccurateClusterDuration(false);
+//	// Flag whether or not to write the Cluster Timecode using exactly 8 bytes.
+//	muxer_segment.UseFixedSizeClusterTimecode(false);
+//	// The mode that segment is in. If set to |kLive| the writer must not seek backwards.
+//	muxer_segment.set_mode(mkvmuxer::Segment::kFile);
+
+//	muxer_segment.SetChunking(true, chunk_name);
+//	muxer_segment.set_max_cluster_duration(max_cluster_duration);
+//	muxer_segment.set_max_cluster_size(max_cluster_size);
+	// Flag whether or not the muxer should output a Cues element.
+	muxer_segment.OutputCues(true);
+
+	mkvmuxer::SegmentInfo* const info = muxer_segment.GetSegmentInfo();
+
+//	info->set_timecode_scale(1000); // ??
+	info->set_writing_app("OpusRec");
+
+	// There are *tags* or something too. Anyway...
+
+//	mkvmuxer::Tag* muxer_tag = muxer_segment.AddTag();
+//	muxer_tag->add_simple_tag(simple_tag->GetTagName(), simple_tag->GetTagString());
+
+	// Add an audio track.
+	uint64_t aud_track = muxer_segment.AddAudioTrack(samplingRate, channels, 1); // 0 means "next available" I think.
+	if (aud_track == 0)
+	{
+		cerr << "Could not add audio track." << endl;
+		return;
+	}
+	mkvmuxer::AudioTrack* audio = static_cast<mkvmuxer::AudioTrack*>(muxer_segment.GetTrackByNumber(aud_track));
+	if (audio == nullptr)
+	{
+		cerr << "Could not get audio track." << endl;
+		return;
+	}
+
+//	audio->set_name("Left");
+	audio->set_codec_id(mkvmuxer::Tracks::kOpusCodecId);
+
+	audio->set_bit_depth(16);
+
+	// Delay built into the code during decoding in nanoseconds.
+	audio->set_codec_delay(6500000);
+
+	// ?
+	audio->set_seek_pre_roll(80000000);
+
+	vector<uint8_t> opushead = OpusHeader(channels, 0, samplingRate, 0);
+	audio->SetCodecPrivate(opushead.data(), opushead.size());
+
+	for (int i = 0; i < 100; ++i)
+	{
+		// Add each packet as a frame.
+
+		mkvmuxer::Frame muxer_frame;
+		if (!muxer_frame.Init(packets[i].data(), packets[i].size()))
+		{
+			cerr << "Couldn't initialise muxer frame." << endl;
+			return;
+		}
+
+		muxer_frame.set_track_number(aud_track);
+		muxer_frame.set_timestamp(i * frameLenMs * 1000000); // In nanoseconds.
+
+		muxer_frame.set_is_key(true); // Does this do anything for audio?
+
+		if (!muxer_segment.AddGenericFrame(&muxer_frame))
+		{
+			cerr << "Could not add frame." << endl;
+			return;
+		}
+	}
+
+	// The duration does not need to be explicitly set.
+//	muxer_segment.set_duration(100 * frameLenMs * 0.001);
+	if (!muxer_segment.Finalize())
+	{
+		cerr << "Finalization of segment failed." << endl;
+		return;
+	}
+
+	writer.Close();
+
+
+}
+
 static const char USAGE[] =
 R"(OpusRec
 
@@ -464,6 +545,10 @@ R"(OpusRec
 
 int main(int argc, char* argv[])
 {
+	OpusWebMTest();
+	return 0;
+
+
 	// Parse the command line using the USAGE above.
 	std::map<std::string, docopt::value> args =
 	        docopt::docopt(USAGE,
