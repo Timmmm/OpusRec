@@ -1,5 +1,5 @@
 [submodule "docopt"]
-	path = docopt
+	path = subprojects/docopt/docopt
 	url = https://github.com/docopt/docopt.cpp.git
 [submodule "opus"]
 	path = opus
