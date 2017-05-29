@@ -7,11 +7,11 @@ libwebm = subproject('libwebm').get_variable('libwebm')
 opus = subproject('opus').get_variable('opus')
 
 # Main program.
-#opusrec_src = [
-#    'main.cpp',
-#	'config.h',
-#]
+opusrec_src = [
+	'main.cpp',
+	'config.h',
+	'CtrlC.cpp',
+	'CtrlC.h',
+]
 
-#executable('opusrec', opusrec_src, dependencies: [docopt, libsoundio, libwebm, opus])
-
-executable('build_test', ['build_test.cpp'], dependencies: [docopt, libsoundio, libwebm, opus])
+executable('opusrec', opusrec_src, dependencies: [docopt, libsoundio, libwebm, opus])
