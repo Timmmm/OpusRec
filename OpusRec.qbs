@@ -4,7 +4,6 @@ CppApplication {
 	name: "OpusRec"
 
 	files: [
-		"config.h",
 		"docopt/docopt.cpp",
 		"docopt/docopt.h",
 		"docopt/docopt_private.h",
@@ -28,7 +27,6 @@ CppApplication {
 		"libsoundio/src/util.h",
 		"libsoundio/src/wasapi.c",
 		"libsoundio/src/wasapi.h",
-		"main.cpp",
 
 
 		// OPUS_HEAD
@@ -485,6 +483,16 @@ CppApplication {
 		"libwebm/mkvmuxer/mkvwriter.cc",
 		"libwebm/mkvmuxer/mkvwriter.h",
 //		"libwebm/common/webmids.h",
+
+
+		"main.cpp",
+		"config.h",
+		"AudioInput.h",
+		"AudioInput.cpp",
+		"OpusWriter.h",
+		"OpusWriter.cpp",
+		"CtrlC.cpp",
+		"CtrlC.h",
 	]
 
 	cpp.cxxLanguageVersion: "c++14"

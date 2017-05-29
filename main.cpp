@@ -9,6 +9,7 @@
 #include <math.h>
 #include <errno.h>
 
+
 #include <docopt.h>
 
 #include <string>
@@ -16,6 +17,9 @@
 #include <map>
 #include <thread>
 #include <chrono>
+#include <atomic>
+
+#include "CtrlC.h"
 
 // libwebm
 #include <mkvparser/mkvparser.h>
@@ -36,6 +40,14 @@ struct RecordContext
 static int min_int(int a, int b)
 {
 	return (a < b) ? a : b;
+}
+
+static atomic_bool ctrlcPressed(false);
+
+void CtrlC()
+{
+	cerr << "Exiting..." << endl;
+	ctrlcPressed = true;
 }
 
 // This callback is called when libsoundio has some auto data to send us.
@@ -429,10 +441,14 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	// Frame time in nanoseconds.
 	uint64_t timecode = 0;
 
+	// Set up ctrl-c handler.
+
+	SetCtrlCHandler(CtrlC);
+
 	// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
 	// you will lose up to 1 second of recorded audio data. In non-example code,
 	// consider a better shutdown strategy.
-	for (int i = 0; i < 5; ++i)
+	while (!ctrlcPressed)
 	{
 		soundio_flush_events(soundio);
 		this_thread::sleep_for(1s);
