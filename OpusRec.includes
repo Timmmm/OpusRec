@@ -1,0 +1,5 @@
+.
+subprojects/docopt
+subprojects/libsoundio
+subprojects/libwebm
+subprojects/opus

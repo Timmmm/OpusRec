@@ -1,0 +1,14 @@
+build_test.cpp
+subprojects/libsoundio/config.h.in
+subprojects/libsoundio/meson_options.txt
+subprojects/opus/meson.build
+subprojects/libwebm/meson.build
+subprojects/libsoundio/meson.build
+subprojects/docopt/meson.build
+meson.build
+AudioInput.cpp
+AudioInput.h
+OpusWriter.cpp
+OpusWriter.h
+config.h
+main.cpp

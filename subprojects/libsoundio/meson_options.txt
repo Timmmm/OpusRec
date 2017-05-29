@@ -1,0 +1,7 @@
+
+option('enable_alsa',       type: 'combo', choices: ['true', 'false', 'auto'], value: 'auto')
+option('enable_coreaudio',  type: 'combo', choices: ['true', 'false', 'auto'], value: 'auto')
+option('enable_jack',       type: 'combo', choices: ['true', 'false', 'auto'], value: 'auto')
+option('enable_pulseaudio', type: 'combo', choices: ['true', 'false', 'auto'], value: 'auto')
+option('enable_wasapi',     type: 'combo', choices: ['true', 'false', 'auto'], value: 'auto')
+
