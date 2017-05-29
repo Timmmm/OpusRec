@@ -2,11 +2,11 @@
 	path = subprojects/docopt/docopt
 	url = https://github.com/docopt/docopt.cpp.git
 [submodule "opus"]
-	path = opus
+	path = subprojects/opus/opus
 	url = https://git.xiph.org/opus.git
 [submodule "libsoundio"]
-	path = libsoundio
+	path = subprojects/libsoundio/libsoundio
 	url = https://github.com/andrewrk/libsoundio
 [submodule "libwebm"]
-	path = libwebm
+	path = subprojects/libwebm/libwebm
 url=https://chromium.googlesource.com/webm/libwebm
