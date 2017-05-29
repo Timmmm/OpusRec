@@ -1,4 +1,5 @@
-build_test.cpp
+CtrlC.cpp
+CtrlC.h
 subprojects/libsoundio/config.h.in
 subprojects/libsoundio/meson_options.txt
 subprojects/opus/config.h
@@ -11,5 +12,4 @@ AudioInput.cpp
 AudioInput.h
 OpusWriter.cpp
 OpusWriter.h
-config.h
 main.cpp

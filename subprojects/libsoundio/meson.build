@@ -74,6 +74,7 @@ endif
 if get_option('enable_wasapi') == 'true'
 	conf_data.set('HAVE_WASAPI', true)
 	src += wasapi_src
+	# Also link with ole32.
 endif
 
 configure_file(input: 'config.h.in', output: 'config.h', configuration: conf_data)
