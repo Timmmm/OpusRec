@@ -9,6 +9,6 @@ src = [
 ]
 
 docopt_inc = include_directories('docopt')
-docopt_lib = library('docopt', src)
+docopt_lib = static_library('docopt', src)
 
 docopt = declare_dependency(link_with: docopt_lib, include_directories: docopt_inc)

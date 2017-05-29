@@ -117,6 +117,6 @@ libwebm_internal_inc = include_directories([
 	'libwebm',
 ])
 libwebm_inc = include_directories('libwebm/webm_parser/include')
-libwebm_lib = library('libwebm', [webm_parser_sources, mkvparser_sources, mkvmuxer_sources], include_directories: libwebm_internal_inc)
+libwebm_lib = static_library('libwebm', [webm_parser_sources, mkvparser_sources, mkvmuxer_sources], include_directories: libwebm_internal_inc)
 
 libwebm = declare_dependency(link_with: libwebm_lib, include_directories: libwebm_inc)

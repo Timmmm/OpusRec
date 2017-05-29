@@ -1,6 +1,7 @@
 build_test.cpp
 subprojects/libsoundio/config.h.in
 subprojects/libsoundio/meson_options.txt
+subprojects/opus/config.h
 subprojects/opus/meson.build
 subprojects/libwebm/meson.build
 subprojects/libsoundio/meson.build

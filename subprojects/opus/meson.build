@@ -347,14 +347,24 @@ celt_sources_arm_ne10 = [
 	'opus/celt/arm/celt_ne10_mdct.c',
 ]
 
-# I need:
+# On x86 I need these:
 #
 # opus_head, opus_sources, opus_sources_float,
 # silk_head, silk_sources, silk_sources_sse4_1, silk_sources_float,
 # celt_head, celt_sources, celt_sources_sse, celt_sources_sse2, celt_sources_sse4_1,
 
-opus_inc = include_directories('opus')
-opus_lib = library('opus', [
+# TODO: Detect architecture.
+
+opus_inc = include_directories([
+	'.', # For config.h
+	'opus/include',
+	'opus/celt',
+	'opus/silk',
+	'opus/silk/float',
+	'opus',
+])
+
+opus_lib = static_library('opus', [
 	opus_head,
 	opus_sources,
 	opus_sources_float,
@@ -367,7 +377,7 @@ opus_lib = library('opus', [
 	celt_sources_sse,
 	celt_sources_sse2,
 	celt_sources_sse4_1,
-])
+], include_directories: opus_inc, c_args: ['-DHAVE_CONFIG_H', '-D_M_IX86', '-msse4.1'])
 
 opus = declare_dependency(link_with: opus_lib, include_directories: opus_inc)
 
