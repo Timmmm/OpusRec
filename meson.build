@@ -9,7 +9,6 @@ opus = subproject('opus').get_variable('opus')
 # Main program.
 opusrec_src = [
 	'main.cpp',
-	'config.h',
 	'CtrlC.cpp',
 	'CtrlC.h',
 ]

@@ -1,5 +1,5 @@
 .
-subprojects/docopt
-subprojects/libsoundio
-subprojects/libwebm
-subprojects/opus
+subprojects/docopt/docopt
+subprojects/libsoundio/libsoundio
+subprojects/libwebm/libwebm
+subprojects/opus/opus/include

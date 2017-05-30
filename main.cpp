@@ -246,7 +246,7 @@ vector<uint8_t> OpusHeader(uint8_t channelCount, uint16_t preSkipSamples, uint32
 }
 
 
-void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, int channels, string outfile)
+void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, int channels, int complexity, int bitrate, string outfile)
 {
 	// Find the device.
 	std::vector<int> selected_devices;
@@ -374,10 +374,9 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	}
 
 	// Set bitrate etc.
-	opus_encoder_ctl(enc, OPUS_SET_BITRATE(32000)); // In bits per second
-	opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(8)); // 0-10.
+	opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate)); // In bits per second
+	opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(complexity)); // 0-10.
 	opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_AUTO)); // Can set to voice or music manually.
-
 
 	// Now initialise WebM.
 
@@ -703,20 +702,31 @@ static const char USAGE[] =
 R"(OpusRec
 
     Usage:
-      OpusRec record [--raw] [--rate=<hz>] [--depth=<depth>] [--channels=<channels>] [--backend=<backend>] [--device=<device_id>] <output_file>
+      OpusRec record [--raw] [--rate=<hz>] [--channels=<n>] [--complexity=<n>] [--bitrate=<bps>] [--backend=<backend>] [--device=<id>] <output_file>
       OpusRec devices [--backend=<backend>]
       OpusRec (-h | --help)
       OpusRec --version
 
     Options:
       -h --help              Show this screen.
+      --version              Print the version and exit.
       --raw                  Use the raw input from the device.
-      --rate=<hz>            Set the sampling rate in Hz. Defaults to 44100.
-      --depth=<depth>        Set the sample depth in bits. Defaults to 16.
-      --channels=<channels>  Set the number of channels. Defaults to 1 or 2, depending on device support.
+      --rate=<hz>            Set the sampling rate in Hz. Must be one of 8000, 12000, 16000, 24000, or 48000. Defaults to the highest supported value.
+      --channels=<channels>  Set the number of channels. Must be 2 or 1. Defaults to the highest supported number. If the device supports stereo and you use --channels 1 it will be downmixed.
+      --complexity=<n>       An integer from 0-10 inclusive. The computational effort that is used for encoding. Default 7.
+      --bitrate=<bps>        Average bitrate in bits per second. Default 64000.
       --backend=<backend>    Set the audio system to use. Defaults to the first one that works.
       --device=<device_id>   Select a specific device from its device ID (use `OpusRec devices`). Required if there is more than one device.
 )";
+
+static const std::map<std::string, SoundIoBackend> backends = {
+    {"dummy", SoundIoBackendDummy},
+    {"alsa", SoundIoBackendAlsa},
+    {"pulseaudio", SoundIoBackendPulseAudio},
+    {"jack", SoundIoBackendJack},
+    {"coreaudio", SoundIoBackendCoreAudio},
+    {"wasapi", SoundIoBackendWasapi},
+};
 
 int main(int argc, char* argv[])
 {
@@ -729,30 +739,31 @@ int main(int argc, char* argv[])
 	                       { argv + 1, argv + argc },
 	                       true,             // Show help if requested
 	                       "OpusRec 1.0");  // Version string
-
-	for(auto const& arg : args) {
-		std::cout << arg.first << ": " << arg.second << std::endl;
-	}
+	
 	enum SoundIoBackend backend = SoundIoBackendNone;
 	string backendOpt = args["--backend"].isString() ? args["--backend"].asString() : "";
+	
+	
+	
 	if (backendOpt != "")
 	{
-		if (backendOpt == "dummy")
-			backend = SoundIoBackendDummy;
-		else if (backendOpt == "alsa")
-			backend = SoundIoBackendAlsa;
-		else if (backendOpt == "pulseaudio")
-			backend = SoundIoBackendPulseAudio;
-		else if (backendOpt == "jack")
-			backend = SoundIoBackendJack;
-		else if (backendOpt == "coreaudio")
-			backend = SoundIoBackendCoreAudio;
-		else if (backendOpt == "wasapi")
-			backend = SoundIoBackendWasapi;
-		else
+		if (backends.count(backendOpt) != 1)
 		{
 			cerr << "Invalid backend: " << backendOpt << endl;
-			cerr << "Valid options: dummy, alsa, pulseaudio, jack, coreaudio, wasapi" << endl;
+			cerr << "Valid options: ";
+			for (auto it : backends)
+			{
+				cerr << it.first;
+				if (!soundio_have_backend(it.second))
+					cerr << " [not supported]";
+				cerr << endl;
+			}
+			return 1;
+		}
+		backend = backends[backendOpt];
+		if (!soundio_have_backend(backend))
+		{
+			cerr << "Backend not supported." << endl;
 			return 1;
 		}
 	}
@@ -788,13 +799,16 @@ int main(int argc, char* argv[])
 		bool is_raw = args["--raw"].isBool() ? args["--raw"].asBool() : false;
 		int samplingRate = args["--rate"] ? args["--rate"].asLong() : 44100;
 		int channels = args["--channels"].isLong() ? args["--channels"].asLong() : 2;
+		int complexity = args["--complexity"].isLong() ? args["--complexity"].asLong() : 7;
+		int bitrate = args["--bitrate"].isLong() ? args["--bitrate"].asLong() : 64000;
 		string outfile = args["<output_file>"].isString() ? args["<output_file>"].asString() : "";
 		cout << outfile << endl;
 
-		record(soundio, device_id, is_raw, samplingRate, channels, outfile);
+		record(soundio, device_id, is_raw, samplingRate, channels, complexity, bitrate, outfile);
 	}
 
 	soundio_destroy(soundio);
+
 	return 0;
 }
 
