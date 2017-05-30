@@ -246,7 +246,7 @@ vector<uint8_t> OpusHeader(uint8_t channelCount, uint16_t preSkipSamples, uint32
 }
 
 
-void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, int channels, int complexity, int bitrate, string outfile)
+void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, int channels, int complexity, int bitrate, int duration, string outfile)
 {
 	// Find the device.
 	std::vector<int> selected_devices;
@@ -290,14 +290,6 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	soundio_device_sort_channel_layouts(device);
 
 	SoundIoFormat fmt = SoundIoFormatS16LE;
-
-	// Open the output file.
-	FILE* out_f = fopen(outfile.c_str(), "wb");
-	if (out_f == nullptr)
-	{
-		cerr << "Unable to open " << outfile << ": " << strerror(errno) << endl;
-		return;
-	}
 
 	// Open the input stream.
 	SoundIoInStream* instream = soundio_instream_create(device);
@@ -441,13 +433,11 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	uint64_t timecode = 0;
 
 	// Set up ctrl-c handler.
-
 	SetCtrlCHandler(CtrlC);
-
-	// Note: in this example, if you send SIGINT (by pressing Ctrl+C for example)
-	// you will lose up to 1 second of recorded audio data. In non-example code,
-	// consider a better shutdown strategy.
-	while (!ctrlcPressed)
+	
+	std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
+	
+	while (!ctrlcPressed && (duration < 0 || (std::chrono::system_clock::now() - start).count() < duration))
 	{
 		soundio_flush_events(soundio);
 		this_thread::sleep_for(1s);
@@ -535,174 +525,11 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	soundio_device_unref(device);
 }
 
-
-void OpusWebMTest()
-{
-	const int samplingRate = 44100;
-	const int channels = 1;
-
-	const int frameLenMs = 20; // Must be 2.5, 5, 10, 20, 40 or 60.
-
-	// samplingRate must be one of 8000, 12000, 16000, 24000, or 48000.
-	if (samplingRate != 8000 && samplingRate != 12000 && samplingRate != 16000 && samplingRate != 24000 && samplingRate != 48000)
-	{
-		cerr << "Unsupported sampling rate: " << samplingRate << endl;
-		return;
-	}
-	// Channels must be 1 or 2 apparently. I guess to do 5.1 or whatever you encode the channels in pairs.
-	if (channels != 1 && channels != 2)
-	{
-		cerr << "Unsupported channel count: " << channels << endl;
-		return;
-	}
-
-	// Opus encoder initialisation.
-	int error = OPUS_INTERNAL_ERROR;
-	OpusEncoder* enc = opus_encoder_create(samplingRate, channels, OPUS_APPLICATION_AUDIO, &error);
-	if (error != OPUS_OK)
-	{
-		cerr << "Error initialising Opus: " << error << endl;
-		return;
-	}
-
-	// Set bitrate etc.
-	opus_encoder_ctl(enc, OPUS_SET_BITRATE(32000)); // In bits per second
-	opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(8)); // 0-10.
-	opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_AUTO)); // Can set to voice or music manually.
-
-	double t = 0.0;
-
-	vector<vector<uint8_t>> packets;
-
-	for (int i = 0; i < 100; ++i)
-	{
-		// Encode a frame. This has to be exactly one frame.
-		// A frame can be 2.5, 5, 10, 20, 40 or 60 ms of audio.
-
-		const int frameLen = samplingRate * frameLenMs / 1000;
-		opus_int16 audio_frame[frameLen];
-		for (int f = 0; f < frameLen; ++f)
-		{
-			double val = sin(t) + cos(2*t);
-			audio_frame[f] = static_cast<opus_int16>(val * 0x1000);
-			t += 0.05;
-		}
-
-		const int max_packet = 1024 * 128;
-		uint8_t packet[max_packet];
-
-		opus_int32 len = opus_encode(enc, audio_frame, frameLen, packet, max_packet);
-		if (len < 0)
-		{
-			// Error.
-			cerr << "Opus encoder error" << endl;
-			return;
-		}
-		if (len <= 2)
-		{
-			// Ignore packet (it's silent).
-		}
-		packets.emplace_back(packet, packet + len);
-	}
-
-	// Destroy encoder.
-	opus_encoder_destroy(enc);
-
-	// Now save the packets using WebM.
-
-	string outfile = "test.webm";
-
-	// Write shit to a webm file.
-	mkvmuxer::MkvWriter writer;
-
-	if (!writer.Open(outfile.c_str()))
-	{
-		cerr << "Error opening output file" << endl;
-		return;
-	}
-
-	// WebM files have one segment.
-	mkvmuxer::Segment muxer_segment;
-	if (!muxer_segment.Init(&writer))
-	{
-		cerr << "Could not initialise muxer segment. Whatever that means." << endl;
-		return;
-	}
-
-	// Flag whether or not the muxer should output a Cues element.
-	muxer_segment.OutputCues(true);
-
-	mkvmuxer::SegmentInfo* const info = muxer_segment.GetSegmentInfo();
-	info->set_writing_app("OpusRec");
-
-	// Add an audio track.
-	uint64_t aud_track = muxer_segment.AddAudioTrack(samplingRate, channels, 1); // 0 means "next available" I think.
-	if (aud_track == 0)
-	{
-		cerr << "Could not add audio track." << endl;
-		return;
-	}
-	mkvmuxer::AudioTrack* audio = static_cast<mkvmuxer::AudioTrack*>(muxer_segment.GetTrackByNumber(aud_track));
-	if (audio == nullptr)
-	{
-		cerr << "Could not get audio track." << endl;
-		return;
-	}
-
-	audio->set_codec_id(mkvmuxer::Tracks::kOpusCodecId);
-
-	audio->set_bit_depth(16);
-
-	// Delay built into the code during decoding in nanoseconds.
-	audio->set_codec_delay(6500000);
-
-	// ?
-	audio->set_seek_pre_roll(80000000);
-
-	vector<uint8_t> opushead = OpusHeader(channels, 0, samplingRate, 0);
-	audio->SetCodecPrivate(opushead.data(), opushead.size());
-
-	for (int i = 0; i < 100; ++i)
-	{
-		// Add each packet as a frame.
-
-		mkvmuxer::Frame muxer_frame;
-		if (!muxer_frame.Init(packets[i].data(), packets[i].size()))
-		{
-			cerr << "Couldn't initialise muxer frame." << endl;
-			return;
-		}
-
-		muxer_frame.set_track_number(aud_track);
-		muxer_frame.set_timestamp(i * frameLenMs * 1000000); // In nanoseconds.
-
-		muxer_frame.set_is_key(true); // Does this do anything for audio?
-
-		if (!muxer_segment.AddGenericFrame(&muxer_frame))
-		{
-			cerr << "Could not add frame." << endl;
-			return;
-		}
-	}
-
-	// The duration does not need to be explicitly set.
-//	muxer_segment.set_duration(100 * frameLenMs * 0.001);
-	if (!muxer_segment.Finalize())
-	{
-		cerr << "Finalization of segment failed." << endl;
-		return;
-	}
-
-	writer.Close();
-
-
-}
-
 static const char USAGE[] =
 R"(OpusRec
 
     Usage:
-      OpusRec record [--raw] [--rate=<hz>] [--channels=<n>] [--complexity=<n>] [--bitrate=<bps>] [--backend=<backend>] [--device=<id>] <output_file>
+      OpusRec record [--raw] [--rate=<hz>] [--channels=<n>] [--complexity=<n>] [--bitrate=<bps>] [--backend=<backend>] [--device=<id>] [--duration=<s>] <output_file>
       OpusRec devices [--backend=<backend>]
       OpusRec (-h | --help)
       OpusRec --version
@@ -717,6 +544,7 @@ R"(OpusRec
       --bitrate=<bps>        Average bitrate in bits per second. Default 64000.
       --backend=<backend>    Set the audio system to use. Defaults to the first one that works.
       --device=<device_id>   Select a specific device from its device ID (use `OpusRec devices`). Required if there is more than one device.
+      --duration=<s>         Stop recording after the given number of seconds. Default to infinite (stop with Ctrl-C).
 )";
 
 static const std::map<std::string, SoundIoBackend> backends = {
@@ -760,7 +588,7 @@ int main(int argc, char* argv[])
 			}
 			return 1;
 		}
-		backend = backends[backendOpt];
+		backend = backends.at(backendOpt);
 		if (!soundio_have_backend(backend))
 		{
 			cerr << "Backend not supported." << endl;
@@ -801,10 +629,10 @@ int main(int argc, char* argv[])
 		int channels = args["--channels"].isLong() ? args["--channels"].asLong() : 2;
 		int complexity = args["--complexity"].isLong() ? args["--complexity"].asLong() : 7;
 		int bitrate = args["--bitrate"].isLong() ? args["--bitrate"].asLong() : 64000;
+		int duration = args["--duration"].isLong() ? args["--duration"].asLong() : -1;
 		string outfile = args["<output_file>"].isString() ? args["<output_file>"].asString() : "";
-		cout << outfile << endl;
 
-		record(soundio, device_id, is_raw, samplingRate, channels, complexity, bitrate, outfile);
+		record(soundio, device_id, is_raw, samplingRate, channels, complexity, bitrate, duration, outfile);
 	}
 
 	soundio_destroy(soundio);
