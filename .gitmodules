@@ -9,4 +9,4 @@
 	url = https://github.com/andrewrk/libsoundio
 [submodule "libwebm"]
 	path = subprojects/libwebm/libwebm
-url=https://chromium.googlesource.com/webm/libwebm
+	url=https://chromium.googlesource.com/webm/libwebm
