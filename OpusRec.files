@@ -1,5 +1,6 @@
 CtrlC.cpp
 CtrlC.h
+Readme.md
 subprojects/libsoundio/config.h.in
 subprojects/libsoundio/meson_options.txt
 subprojects/opus/config.h
