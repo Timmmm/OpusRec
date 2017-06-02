@@ -9,7 +9,6 @@
 #include <math.h>
 #include <errno.h>
 
-
 #include <docopt.h>
 
 #include <string>
@@ -319,7 +318,7 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 		return;
 	}
 
-	cerr << instream->layout.name << samplingRate << " Hz " << soundio_format_string(fmt) << " interleaved" << endl;
+	cerr << instream->layout.name << " " << samplingRate << " Hz " << soundio_format_string(fmt) << endl;
 
 	const int ring_buffer_duration_seconds = 30;
 	int capacity = ring_buffer_duration_seconds * instream->sample_rate * instream->bytes_per_frame;
@@ -388,9 +387,6 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 		return;
 	}
 
-	// Flag whether or not the muxer should output a Cues element. It's like an index. Not sure we need it for audio.
-//	muxer_segment.OutputCues(true);
-
 	mkvmuxer::SegmentInfo* const info = muxer_segment.GetSegmentInfo();
 	info->set_writing_app("OpusRec");
 
@@ -415,7 +411,7 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	// Delay built into the code during decoding in nanoseconds.
 	audio->set_codec_delay(6500000);
 
-	// ?
+	// Amount of audio to discard after a seek, or something like that.
 	audio->set_seek_pre_roll(80000000);
 
 	vector<uint8_t> opushead = OpusHeader(channels, 0, samplingRate, 0);
@@ -427,7 +423,7 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	uint8_t audio_frame_input[frameLen * sizeof(int16_t) * channels];
 
 	// Number of bytes in the frame we have filled.
-	int frameFilled = 0;
+	unsigned int frameFilled = 0;
 
 	// Frame time in nanoseconds.
 	uint64_t timecode = 0;
@@ -435,11 +431,18 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	// Set up ctrl-c handler.
 	SetCtrlCHandler(CtrlC);
 	
-	std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
+	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 	
-	while (!ctrlcPressed && (duration < 0 || (std::chrono::system_clock::now() - start).count() < duration))
+	while (!ctrlcPressed)
 	{
+		int secondsPassed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count();
+		cerr << secondsPassed << endl;
+
+		if (duration >= 0 && secondsPassed >= duration)
+			break;
+		
 		soundio_flush_events(soundio);
+		
 		this_thread::sleep_for(1s);
 
 		int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
@@ -461,20 +464,20 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 
 				for (int s = 0; s < frameLen; ++s)
 				{
-					// Just take the first channel for now.
+					// Just take the first channel for now. TODO: Fix this.
 					int o = s * sizeof(int16_t) * channels;
 					audio_frame[s] = static_cast<int16_t>(audio_frame_input[o+1] << 8) + audio_frame_input[o];
 				}
 
 				// Encode to Opus.
-				const int max_packet = 1024 * 128;
+				const int max_packet = 1024 * 128; // TODO: What should this be?
 				uint8_t packet[max_packet];
 
 				opus_int32 len = opus_encode(enc, reinterpret_cast<const int16_t*>(audio_frame), frameLen, packet, max_packet);
 				if (len < 0)
 				{
 					// Error.
-					cerr << "Opus encoder error" << endl;
+					cerr << "Opus encoder error: " << len << endl;
 					return;
 				}
 				if (len <= 2)
@@ -558,9 +561,6 @@ static const std::map<std::string, SoundIoBackend> backends = {
 
 int main(int argc, char* argv[])
 {
-//	OpusWebMTest();
-//	return 0;
-
 	// Parse the command line using the USAGE above.
 	std::map<std::string, docopt::value> args =
 	        docopt::docopt(USAGE,
@@ -568,10 +568,37 @@ int main(int argc, char* argv[])
 	                       true,             // Show help if requested
 	                       "OpusRec 1.0");  // Version string
 	
+	auto stringOpt = [&](string key, string def) -> string {
+		if (args.count(key) != 1)
+			return def;
+		if (!args[key].isString())
+			return def;
+		return args[key].asString();
+	};
+	auto intOpt = [&](string key, int def) -> int {
+		if (args.count(key) != 1)
+			return def;
+		if (!args[key].isString())
+			return def;
+		string val = args[key].asString();
+		try
+		{
+			size_t processed = 0;
+			int x = std::stoi(val, &processed, 10);
+			if (processed != val.size())
+				return def;
+			return x;
+		}
+		catch (std::exception& e)
+		{
+		}
+		return def;
+	};
+	
 	enum SoundIoBackend backend = SoundIoBackendNone;
 	string backendOpt = args["--backend"].isString() ? args["--backend"].asString() : "";
 	
-	
+//	for (auto&& it : args) cerr << it.first << ": " << it.second << endl;
 	
 	if (backendOpt != "")
 	{
@@ -625,12 +652,14 @@ int main(int argc, char* argv[])
 	{
 		string device_id = args["--device"].isString() ? args["--device"].asString() : "";
 		bool is_raw = args["--raw"].isBool() ? args["--raw"].asBool() : false;
-		int samplingRate = args["--rate"] ? args["--rate"].asLong() : 44100;
-		int channels = args["--channels"].isLong() ? args["--channels"].asLong() : 2;
-		int complexity = args["--complexity"].isLong() ? args["--complexity"].asLong() : 7;
-		int bitrate = args["--bitrate"].isLong() ? args["--bitrate"].asLong() : 64000;
-		int duration = args["--duration"].isLong() ? args["--duration"].asLong() : -1;
-		string outfile = args["<output_file>"].isString() ? args["<output_file>"].asString() : "";
+		int samplingRate = intOpt("--rate", 44100);
+		int channels = intOpt("--channels", 2);
+		int complexity = intOpt("--complexity", 7);
+		int bitrate = intOpt("--bitrate", 64000);
+		int duration = intOpt("--duration", -1);
+		string outfile = stringOpt("<output_file>", "");
+		
+		cerr << "Duration: " << duration << endl;
 
 		record(soundio, device_id, is_raw, samplingRate, channels, complexity, bitrate, duration, outfile);
 	}
