@@ -369,7 +369,7 @@ src = [
 	celt_sources,
 ]
 
-args = ['-DHAVE_CONFIG_H']
+args = ['-DHAVE_CONFIG_H', '-DHAVE_LRINTF']
 
 if target_machine.cpu_family() == 'arm'
 	src += [
