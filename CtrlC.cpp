@@ -39,7 +39,7 @@ static void CtrlCHandler(int s)
 
 }
 
-bool SetCtrlCHandler(std::functional<void()> callback)
+bool SetCtrlCHandler(CtrlCCallback callback)
 {
 	userCallback = callback;
 
