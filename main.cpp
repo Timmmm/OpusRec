@@ -28,7 +28,7 @@
 #include <mkvmuxer/mkvwriter.h>
 
 using namespace std;
-using namespace std::chrono_literals;
+//using namespace std::chrono_literals;
 
 // This is passed to the read callback in the `void* userdata` pointer.
 struct RecordContext
@@ -443,7 +443,7 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 		
 		soundio_flush_events(soundio);
 		
-		this_thread::sleep_for(1s);
+		this_thread::sleep_for(chrono::seconds(1));
 
 		int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
 		char* read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);

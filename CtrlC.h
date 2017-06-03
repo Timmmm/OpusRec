@@ -7,4 +7,7 @@
 // pass a function that does nothing (i.e. `[] {}`).
 //
 // Returns true if the function was successfully set.
-bool SetCtrlCHandler(std::function<void()> callback);
+
+typedef void (*CtrlCCallback)();
+
+bool SetCtrlCHandler(CtrlCCallback callback);

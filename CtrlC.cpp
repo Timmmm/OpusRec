@@ -1,6 +1,6 @@
 #include "CtrlC.h"
 
-static std::function<void()> userCallback;
+static CtrlCCallback userCallback = nullptr;
 
 #if defined(_WIN32)
 
@@ -23,7 +23,7 @@ WINBOOL WINAPI CtrlCHandler(DWORD fdwCtrlType)
 }
 
 
-bool SetCtrlCHandler(std::function<void ()> callback)
+bool SetCtrlCHandler(CtrlCCallback callback)
 {
 	userCallback = callback;
 	return SetConsoleCtrlHandler(CtrlCHandler, callback ? TRUE : FALSE) != 0;
