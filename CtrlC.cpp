@@ -36,7 +36,8 @@ bool SetCtrlCHandler(CtrlCCallback callback)
 
 static void CtrlCHandler(int s)
 {
-
+	if (userCallback)
+		userCallback();
 }
 
 bool SetCtrlCHandler(CtrlCCallback callback)
