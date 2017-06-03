@@ -45,7 +45,7 @@ bool SetCtrlCHandler(CtrlCCallback callback)
 
 	if (callback)
 	{
-		sigaction sigIntHandler;
+		struct sigaction sigIntHandler;
 
 		sigIntHandler.sa_handler = CtrlCHandler;
 		sigemptyset(&sigIntHandler.sa_mask);
@@ -55,8 +55,15 @@ bool SetCtrlCHandler(CtrlCCallback callback)
 	}
 	else
 	{
-		// ???
+		struct sigaction sigIntHandler;
+
+		sigIntHandler.sa_handler = SIG_DFL; // Restore default.
+		sigemptyset(&sigIntHandler.sa_mask);
+		sigIntHandler.sa_flags = 0;
+
+		return sigaction(SIGINT, &sigIntHandler, nullptr) == 0;
 	}
+	return false;
 }
 
 

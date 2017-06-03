@@ -401,8 +401,4 @@ endif
 
 opus_lib = static_library('opus', src, include_directories: opus_inc, c_args: args)
 
-# __GNUC__ required for alloca().
-opus = declare_dependency(link_with: opus_lib, include_directories: opus_inc, compile_args: ['-D__GNUC__'])
-
-
-
+opus = declare_dependency(link_with: opus_lib, include_directories: opus_inc)

@@ -102,7 +102,7 @@ endif
 configure_file(input: 'config.h.in', output: 'config.h', configuration: conf_data)
 
 libsoundio_inc = include_directories('libsoundio')
-libsoundio_lib = static_library('libsoundio', src, include_directories: libsoundio_inc, c_args: ['-DSOUNDIO_STATIC_LIBRARY', '-D_POSIX_C_SOURCE=200809L'])
+libsoundio_lib = static_library('libsoundio', src, include_directories: libsoundio_inc, c_args: ['-DSOUNDIO_STATIC_LIBRARY'])
 
 libsoundio = declare_dependency(
 	link_with: libsoundio_lib,
