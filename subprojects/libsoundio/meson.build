@@ -63,42 +63,35 @@ conf_data.set('LIBSOUNDIO_VERSION_MINOR', '1')
 conf_data.set('LIBSOUNDIO_VERSION_PATCH', '0')
 conf_data.set('LIBSOUNDIO_VERSION', '1.1.0')
 
-if get_option('enable_alsa') == 'true'
-	or (get_option('enable_alsa') == 'auto' and meson.get_compiler('cpp').has_header('alsa/asoundlib.h'))
+if get_option('enable_alsa') == 'true' or (get_option('enable_alsa') == 'auto' and meson.get_compiler('cpp').has_header('alsa/asoundlib.h'))
 	
 	conf_data.set('SOUNDIO_HAVE_ALSA', true)
 	src += alsa_src
 	libs += alsa_libs
 endif
 
-if get_option('enable_coreaudio') == 'true'
-	or (get_option('enable_coreaudio') == 'auto'
-		and meson.get_compiler('cpp').has_header('CoreAudio/CoreAudio.h')
-		and meson.get_compiler('cpp').has_header('AudioUnit/AudioUnit.h'))
+if get_option('enable_coreaudio') == 'true' or (get_option('enable_coreaudio') == 'auto' and meson.get_compiler('cpp').has_header('CoreAudio/CoreAudio.h') and meson.get_compiler('cpp').has_header('AudioUnit/AudioUnit.h'))
 	
 	conf_data.set('SOUNDIO_HAVE_COREAUDIO', true)
 	src += coreaudio_src
 	libs += coreaudio_libs
 endif
 
-if get_option('enable_jack') == 'true'
-	or (get_option('enable_jack') == 'auto' and meson.get_compiler('cpp').has_header('jack/jack.h'))
+if get_option('enable_jack') == 'true' or (get_option('enable_jack') == 'auto' and meson.get_compiler('cpp').has_header('jack/jack.h'))
 	
 	conf_data.set('SOUNDIO_HAVE_JACK', true)
 	src += jack_src
 	libs += jack_libs
 endif
 
-if get_option('enable_pulseaudio') == 'true'
-	or (get_option('enable_pulseaudio') == 'auto' and meson.get_compiler('cpp').has_header('pulse/pulseaudio.h'))
+if get_option('enable_pulseaudio') == 'true' or (get_option('enable_pulseaudio') == 'auto' and meson.get_compiler('cpp').has_header('pulse/pulseaudio.h'))
 	
 	conf_data.set('SOUNDIO_HAVE_PULSEAUDIO', true)
 	src += pulseaudio_src
 	libs += pulseaudio_libs
 endif
 
-if get_option('enable_wasapi') == 'true'
-	or (get_option('enable_wasapi') == 'auto' and meson.get_compiler('cpp').has_header('Audioclient.h'))
+if get_option('enable_wasapi') == 'true' or (get_option('enable_wasapi') == 'auto' and meson.get_compiler('cpp').has_header('Audioclient.h'))
 	
 	conf_data.set('SOUNDIO_HAVE_WASAPI', true)
 	src += wasapi_src
