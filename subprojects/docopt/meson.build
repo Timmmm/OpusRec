@@ -1,4 +1,4 @@
-project('docopt', 'cpp', default_options: ['cpp_std=c++14'])
+project('docopt', 'cpp', default_options: ['cpp_std=c++11'])
 
 src = [
 	'docopt/docopt.cpp',

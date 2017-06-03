@@ -1,4 +1,4 @@
-project('libwebm', 'cpp', default_options: ['cpp_std=c++14'])
+project('libwebm', 'cpp', default_options: ['cpp_std=c++11'])
 
 webm_parser_sources = [
 	'libwebm/webm_parser/include/webm/buffer_reader.h',

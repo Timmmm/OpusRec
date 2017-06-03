@@ -1,4 +1,4 @@
-project('OpusRec', 'cpp', default_options: ['c_std=c11', 'cpp_std=c++14'])
+project('OpusRec', 'cpp', default_options: ['c_std=c11', 'cpp_std=c++11'])
 
 
 docopt = subproject('docopt').get_variable('docopt')

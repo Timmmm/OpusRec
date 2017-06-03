@@ -342,18 +342,11 @@ celt_sources_arm_neon_intr = [
 	'opus/celt/arm/celt_neon_intr.c',
 ]
 
+# Ne10 is a NEON library: https://github.com/projectNe10/Ne10
 celt_sources_arm_ne10 = [
 	'opus/celt/arm/celt_ne10_fft.c',
 	'opus/celt/arm/celt_ne10_mdct.c',
 ]
-
-# On x86 I need these:
-#
-# opus_head, opus_sources, opus_sources_float,
-# silk_head, silk_sources, silk_sources_sse4_1, silk_sources_float,
-# celt_head, celt_sources, celt_sources_sse, celt_sources_sse2, celt_sources_sse4_1,
-
-# TODO: Detect architecture.
 
 opus_inc = include_directories([
 	'.', # For config.h
@@ -361,23 +354,51 @@ opus_inc = include_directories([
 	'opus/celt',
 	'opus/silk',
 	'opus/silk/float',
+	'opus/silk/fixed',
 	'opus',
 ])
 
-opus_lib = static_library('opus', [
+src = [
 	opus_head,
 	opus_sources,
 	opus_sources_float,
 	silk_head,
 	silk_sources,
-	silk_sources_sse4_1,
 	silk_sources_float,
 	celt_head,
 	celt_sources,
-	celt_sources_sse,
-	celt_sources_sse2,
-	celt_sources_sse4_1,
-], include_directories: opus_inc, c_args: ['-DHAVE_CONFIG_H', '-D_M_IX86', '-msse4.1'])
+]
+
+args = ['-DHAVE_CONFIG_H']
+
+if target_machine.cpu_family() == 'arm'
+	src += [
+		silk_sources_arm_neon_intr,
+		celt_sources_arm,
+		celt_sources_arm_neon_intr,
+	]
+	args += ['-mfpu=neon']
+elif target_machine.cpu_family() == 'x86'
+	src += [
+		silk_sources_sse4_1,
+		celt_sources_sse,
+		celt_sources_sse2,
+		celt_sources_sse4_1,
+	]
+	args += ['-D_M_IX86', '-msse4.1']
+elif target_machine.cpu_family() == 'x86_64'
+	src += [
+		silk_sources_sse4_1,
+		celt_sources_sse,
+		celt_sources_sse2,
+		celt_sources_sse4_1,
+	]
+	args += ['-D_M_X64', '-msse4.1']
+else
+	error('Unsupported Opus architecture')
+endif
+
+opus_lib = static_library('opus', src, include_directories: opus_inc, c_args: args)
 
 opus = declare_dependency(link_with: opus_lib, include_directories: opus_inc)
 
