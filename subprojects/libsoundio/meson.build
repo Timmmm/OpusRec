@@ -1,4 +1,5 @@
-project('libsoundio', 'c', default_options: ['c_std=c11'])
+project('libsoundio', 'c', default_options: ['c_std=gnu11'])
+# gnu11 is required - see https://stackoverflow.com/questions/32672333/including-alsa-asoundlib-h-and-sys-time-h-results-in-multiple-definition-co
 
 src = [
 	'libsoundio/soundio/endian.h',
@@ -101,7 +102,7 @@ endif
 configure_file(input: 'config.h.in', output: 'config.h', configuration: conf_data)
 
 libsoundio_inc = include_directories('libsoundio')
-libsoundio_lib = static_library('libsoundio', src, include_directories: libsoundio_inc, c_args: ['-DSOUNDIO_STATIC_LIBRARY'])
+libsoundio_lib = static_library('libsoundio', src, include_directories: libsoundio_inc, c_args: ['-DSOUNDIO_STATIC_LIBRARY', '-D_POSIX_C_SOURCE=200809L'])
 
 libsoundio = declare_dependency(
 	link_with: libsoundio_lib,

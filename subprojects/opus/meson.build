@@ -1,4 +1,5 @@
-project('opus', 'c', default_options: ['c_std=c11'])
+project('opus', 'c', default_options: ['c_std=gnu11'])
+# gnu11 is required for alloca.
 
 opus_head = [
 	'opus/include/opus.h',
@@ -400,7 +401,8 @@ endif
 
 opus_lib = static_library('opus', src, include_directories: opus_inc, c_args: args)
 
-opus = declare_dependency(link_with: opus_lib, include_directories: opus_inc)
+# __GNUC__ required for alloca().
+opus = declare_dependency(link_with: opus_lib, include_directories: opus_inc, compile_args: ['-D__GNUC__'])
 
 
 
