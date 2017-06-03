@@ -605,10 +605,10 @@ int main(int argc, char* argv[])
 		if (backends.count(backendOpt) != 1)
 		{
 			cerr << "Invalid backend: " << backendOpt << endl;
-			cerr << "Valid options: ";
+			cerr << "Valid options: \n\n";
 			for (auto it : backends)
 			{
-				cerr << it.first;
+				cerr << "    " << it.first;
 				if (!soundio_have_backend(it.second))
 					cerr << " [not supported]";
 				cerr << endl;
