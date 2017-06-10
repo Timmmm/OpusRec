@@ -513,6 +513,8 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	}
 
 
+	soundio_instream_destroy(instream);
+	soundio_device_unref(device);
 	// Destroy Opus encoder.
 	opus_encoder_destroy(enc);
 
@@ -523,9 +525,6 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	}
 
 	writer.Close();
-
-	soundio_instream_destroy(instream);
-	soundio_device_unref(device);
 }
 
 static const char USAGE[] =
