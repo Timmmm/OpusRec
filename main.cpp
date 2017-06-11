@@ -19,6 +19,7 @@
 #include <atomic>
 
 #include "CtrlC.h"
+#include "RingBuffer.h"
 
 // libwebm
 #include <mkvparser/mkvparser.h>
@@ -33,7 +34,8 @@ using namespace std;
 // This is passed to the read callback in the `void* userdata` pointer.
 struct RecordContext
 {
-	SoundIoRingBuffer* ring_buffer;
+	explicit RecordContext(int cap) : ring_buffer(cap) {}
+	RingBuffer<uint8_t> ring_buffer;
 };
 
 static int min_int(int a, int b)
@@ -55,14 +57,12 @@ static void read_callback(SoundIoInStream* instream, int frame_count_min, int fr
 	// Recover the RecordContext object.
 	RecordContext* rc = static_cast<RecordContext*>(instream->userdata);
 
-	SoundIoChannelArea* areas;
-	int err;
-	char* write_ptr = soundio_ring_buffer_write_ptr(rc->ring_buffer);
-	int free_bytes = soundio_ring_buffer_free_count(rc->ring_buffer);
+	size_t free_bytes = rc->ring_buffer.free();
 	int free_count = free_bytes / instream->bytes_per_frame;
+	
 	if (free_count < frame_count_min)
 	{
-		cerr << "Ring buffer overflow" << endl;
+		cerr << "Ring buffer overflow :(" << endl;
 		exit(1);
 	}
 
@@ -71,33 +71,55 @@ static void read_callback(SoundIoInStream* instream, int frame_count_min, int fr
 	for (;;)
 	{
 		int frame_count = frames_left;
-		if ((err = soundio_instream_begin_read(instream, &areas, &frame_count)))
+		
+		SoundIoChannelArea* areas = nullptr;
+		
+		int err = soundio_instream_begin_read(instream, &areas, &frame_count);
+		if (err != SoundIoErrorNone)
 		{
 			cerr << "Begin read error: " << soundio_strerror(err) << endl;
 			exit(1);
 		}
 
-		if (!frame_count)
+		if (frame_count == 0)
 			break;
-		if (!areas)
+		
+		if (areas == nullptr)
 		{
 			// Due to an overflow there is a hole. Fill the ring buffer with
 			// silence for the size of the hole.
-			memset(write_ptr, 0, frame_count * instream->bytes_per_frame);
-		}
-		else
-		{
-			for (int frame = 0; frame < frame_count; ++frame)
+			for (int i = 0; i < frame_count * instream->bytes_per_frame; ++i)
 			{
-				for (int ch = 0; ch < instream->layout.channel_count; ++ch)
+				if (!rc->ring_buffer.push(0))
 				{
-					memcpy(write_ptr, areas[ch].ptr, instream->bytes_per_sample);
-					areas[ch].ptr += areas[ch].step;
-					write_ptr += instream->bytes_per_sample;
+					cerr << "Ring buffer overflow :/" << endl;
+					exit(1);
 				}
 			}
 		}
-		if ((err = soundio_instream_end_read(instream)))
+		else
+		{
+			// Copy each frame.
+			for (int frame = 0; frame < frame_count; ++frame)
+			{
+				// Copy each channel for the frame.
+				for (int ch = 0; ch < instream->layout.channel_count; ++ch)
+				{
+					// Copy all the sample bytes for that sample.
+					for (int z = 0; z < instream->bytes_per_sample; ++z)
+					{
+						if (!rc->ring_buffer.push(areas[ch].ptr[z]))
+						{
+							cerr << "Ring buffer overflow D:" << endl;
+							exit(1);
+						}
+					}
+					areas[ch].ptr += areas[ch].step;
+				}
+			}
+		}
+		err = soundio_instream_end_read(instream);
+		if (err != SoundIoErrorNone)
 		{
 			cerr << "End read error: " << soundio_strerror(err) << endl;
 			exit(1);
@@ -107,9 +129,6 @@ static void read_callback(SoundIoInStream* instream, int frame_count_min, int fr
 		if (frames_left <= 0)
 			break;
 	}
-
-	int advance_bytes = write_frames * instream->bytes_per_frame;
-	soundio_ring_buffer_advance_write_ptr(rc->ring_buffer, advance_bytes);
 }
 
 static void overflow_callback(SoundIoInStream* instream)
@@ -300,7 +319,9 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 
 	cout << "Default format: " << instream->format << " sample rate: " << instream->sample_rate << endl;
 
-	RecordContext rc;
+	int capacity = samplingRate * 30 * 4;
+
+	RecordContext rc(capacity);
 
 	instream->format = fmt;
 	instream->sample_rate = samplingRate;
@@ -320,15 +341,6 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 
 	cerr << instream->layout.name << " " << samplingRate << " Hz " << soundio_format_string(fmt) << endl;
 
-	const int ring_buffer_duration_seconds = 30;
-	int capacity = ring_buffer_duration_seconds * instream->sample_rate * instream->bytes_per_frame;
-	rc.ring_buffer = soundio_ring_buffer_create(soundio, capacity);
-	if (rc.ring_buffer == nullptr)
-	{
-		cerr << "Out of memory" << endl;
-		return;
-	}
-
 	err = soundio_instream_start(instream);
 	if (err != SoundIoErrorNone)
 	{
@@ -347,11 +359,11 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 		return;
 	}
 	// Channels must be 1 or 2 apparently. I guess to do 5.1 or whatever you encode the channels in pairs.
-//	if (channels != 1 && channels != 2)
-//	{
-//		cerr << "Unsupported channel count: " << channels << endl;
-//		return;
-//	}
+	if (channels != 1 && channels != 2)
+	{
+		cerr << "Unsupported channel count: " << channels << endl;
+		return;
+	}
 
 	// We'll just mix down to 1 channel anyway.
 
@@ -391,7 +403,7 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	info->set_writing_app("OpusRec");
 
 	// Add an audio track.
-	uint64_t aud_track = muxer_segment.AddAudioTrack(samplingRate, channels, 0); // 0 means "next available" I think.
+	uint64_t aud_track = muxer_segment.AddAudioTrack(samplingRate, channels, 0);
 	if (aud_track == 0)
 	{
 		cerr << "Could not add audio track." << endl;
@@ -445,13 +457,18 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 		
 		this_thread::sleep_for(chrono::seconds(1));
 
-		int fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer);
-		char* read_buf = soundio_ring_buffer_read_ptr(rc.ring_buffer);
+		int available = rc.ring_buffer.size();
 
 		// The audio data is now in: read_buf, and there are fill_bytes of it.
-		for (int i = 0; i < fill_bytes; ++i)
+		for (int i = 0; i < available; ++i)
 		{
-			audio_frame_input[frameFilled] = read_buf[i];
+			if (!rc.ring_buffer.pop(audio_frame_input[frameFilled]))
+			{
+				// This should never happen.
+				cerr << "Error reading ring buffer." << endl;
+				exit(1);
+			}
+			
 			++frameFilled;
 
 			// If the frame is full, write it.
@@ -508,13 +525,12 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 				}
 			}
 		}
-
-		soundio_ring_buffer_advance_read_ptr(rc.ring_buffer, fill_bytes);
 	}
 
 
 	soundio_instream_destroy(instream);
 	soundio_device_unref(device);
+	
 	// Destroy Opus encoder.
 	opus_encoder_destroy(enc);
 

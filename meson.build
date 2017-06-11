@@ -11,6 +11,7 @@ opusrec_src = [
 	'main.cpp',
 	'CtrlC.cpp',
 	'CtrlC.h',
+	'RingBuffer.h',
 ]
 
 executable('opusrec', opusrec_src, dependencies: [docopt, libsoundio, libwebm, opus])
