@@ -75,7 +75,7 @@ public:
 		if ((w + 1) % len == r)
 			return false;
 		
-		data[r] = x;
+		data[w] = x;
 		
 		// Atomically increment and modulo `write`.
 		size_t new_w;
