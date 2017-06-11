@@ -459,12 +459,12 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 
 		int available = rc.ring_buffer.size();
 
-		// The audio data is now in: read_buf, and there are fill_bytes of it.
+		// There are `available` bytes available.
 		for (int i = 0; i < available; ++i)
 		{
 			if (!rc.ring_buffer.pop(audio_frame_input[frameFilled]))
 			{
-				// This should never happen.
+				// This should never happen. TODO: Make this an assert.
 				cerr << "Error reading ring buffer." << endl;
 				exit(1);
 			}

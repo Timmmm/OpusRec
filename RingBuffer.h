@@ -14,20 +14,23 @@ template <typename T>
 class RingBuffer
 {
 public:
-	explicit RingBuffer(size_t capacity = 0) : data(capacity + 1), len(capacity + 1)
+	explicit RingBuffer(size_t capacity) : data(capacity + 1), len(capacity + 1)
 	{
 	}
 	
+	// How many elements can this store in total?
 	size_t capacity() const
 	{
 		return len - 1;
 	}
 	
+	// How many more elements can be pushed before it is full?
 	size_t free() const
 	{
-		return len - size();
+		return capacity() - size();
 	}
 	
+	// How many elements can be popped before it is empty?
 	size_t size() const
 	{
 		size_t r = read.load();
@@ -35,6 +38,7 @@ public:
 		return (w - r + len) % len;
 	}
 	
+	// Can any more elements be pushed?
 	bool full() const
 	{
 		size_t r = read.load();
@@ -42,6 +46,7 @@ public:
 		return (w + 1) % len == r;
 	}
 	
+	// Can any elements be popped?
 	bool empty() const
 	{
 		size_t r = read.load();
@@ -49,6 +54,8 @@ public:
 		return w == r;
 	}
 	
+	// Read the oldest element and remove it. Returns false
+	// if there were none.
 	bool pop(T& x)
 	{
 		size_t r = read.load();
@@ -68,6 +75,7 @@ public:
 		return true;
 	}
 
+	// Add an element. Returns false if there is no space.
 	bool push(const T& x)
 	{
 		size_t w = write.load();
