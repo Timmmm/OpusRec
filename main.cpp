@@ -2,8 +2,6 @@
 
 #include <soundio/soundio.h>
 
-#include <opus.h>
-
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -20,13 +18,7 @@
 
 #include "CtrlC.h"
 #include "RingBuffer.h"
-
-// libwebm
-#include <mkvparser/mkvparser.h>
-#include <mkvparser/mkvreader.h>
-#include <mkvmuxer/mkvmuxer.h>
-#include <mkvmuxer/mkvmuxertypes.h>
-#include <mkvmuxer/mkvwriter.h>
+#include "OpusWriter.h"
 
 using namespace std;
 //using namespace std::chrono_literals;
@@ -232,38 +224,6 @@ void printInputDevices(SoundIo* soundio)
 	}
 }
 
-
-// See https://tools.ietf.org/html/rfc7845 Section 5.1
-//
-// outputGain is Q7.8 in dB, recommended to be 0.
-vector<uint8_t> OpusHeader(uint8_t channelCount, uint16_t preSkipSamples, uint32_t inputSampleRate, uint16_t outputGain)
-{
-	vector<uint8_t> head(19);
-
-	head[0] = 'O';
-	head[1] = 'p';
-	head[2] = 'u';
-	head[3] = 's';
-	head[4] = 'H';
-	head[5] = 'e';
-	head[6] = 'a';
-	head[7] = 'd';
-	head[8] = 1; // Version
-	head[9] = channelCount;
-	head[10] = (preSkipSamples >> 0) & 0xFF;
-	head[11] = (preSkipSamples >> 8) & 0xFF;
-	head[12] = (inputSampleRate >> 0) & 0xFF;
-	head[13] = (inputSampleRate >> 8) & 0xFF;
-	head[14] = (inputSampleRate >> 16) & 0xFF;
-	head[15] = (inputSampleRate >> 24) & 0xFF;
-	head[16] = (outputGain >> 0) & 0xFF;
-	head[17] = (outputGain >> 8) & 0xFF;
-	head[18] = 0; // Mapping family - none.
-
-	return head;
-}
-
-
 void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, int channels, int complexity, int bitrate, int duration, string outfile)
 {
 	// Find the device.
@@ -349,96 +309,29 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	}
 
 
-	// Ok now initialise Opus.
-	const int frameLenMs = 20; // Must be 2.5, 5, 10, 20, 40 or 60.
-
-	// samplingRate must be one of 8000, 12000, 16000, 24000, or 48000.
-	if (samplingRate != 8000 && samplingRate != 12000 && samplingRate != 16000 && samplingRate != 24000 && samplingRate != 48000)
+	// Ok now initialise Opus. Default 20ms is best.
+	const OpusReader::FrameLength frameLen = OpusReader::Frame_20ms;
+	
+	OpusReader writer(outfile,
+	                  static_cast<OpusReader::SamplingRate>(samplingRate),
+		              static_cast<OpusReader::Channels>(channels),
+		              frameLen,
+		              bitrate,
+		              static_cast<OpusReader::ComputationalComplexity>(complexity));
+	
+	if (writer.status() != OpusReader::Status_Ok)
 	{
-		cerr << "Unsupported sampling rate: " << samplingRate << endl;
+		cerr << "Opus error: " << writer.status() << endl; // TODO: Convert to readable string.
 		return;
 	}
-	// Channels must be 1 or 2 apparently. I guess to do 5.1 or whatever you encode the channels in pairs.
-	if (channels != 1 && channels != 2)
-	{
-		cerr << "Unsupported channel count: " << channels << endl;
-		return;
-	}
-
-	// We'll just mix down to 1 channel anyway.
-
-	// Opus encoder initialisation.
-	int error = OPUS_INTERNAL_ERROR;
-	OpusEncoder* enc = opus_encoder_create(samplingRate, 1, OPUS_APPLICATION_AUDIO, &error);
-	if (error != OPUS_OK)
-	{
-		cerr << "Error initialising Opus: " << error << endl;
-		return;
-	}
-
-	// Set bitrate etc.
-	opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate)); // In bits per second
-	opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(complexity)); // 0-10.
-	opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_AUTO)); // Can set to voice or music manually.
-
-	// Now initialise WebM.
-
-	mkvmuxer::MkvWriter writer;
-
-	if (!writer.Open(outfile.c_str()))
-	{
-		cerr << "Error opening output file" << endl;
-		return;
-	}
-
-	// WebM files have one segment.
-	mkvmuxer::Segment muxer_segment;
-	if (!muxer_segment.Init(&writer))
-	{
-		cerr << "Could not initialise muxer segment. Whatever that means." << endl;
-		return;
-	}
-
-	mkvmuxer::SegmentInfo* const info = muxer_segment.GetSegmentInfo();
-	info->set_writing_app("OpusRec");
-
-	// Add an audio track.
-	uint64_t aud_track = muxer_segment.AddAudioTrack(samplingRate, channels, 0);
-	if (aud_track == 0)
-	{
-		cerr << "Could not add audio track." << endl;
-		return;
-	}
-	mkvmuxer::AudioTrack* audio = static_cast<mkvmuxer::AudioTrack*>(muxer_segment.GetTrackByNumber(aud_track));
-	if (audio == nullptr)
-	{
-		cerr << "Could not get audio track." << endl;
-		return;
-	}
-
-	audio->set_codec_id(mkvmuxer::Tracks::kOpusCodecId);
-
-	audio->set_bit_depth(16);
-
-	// Delay built into the code during decoding in nanoseconds.
-	audio->set_codec_delay(6500000);
-
-	// Amount of audio to discard after a seek, or something like that.
-	audio->set_seek_pre_roll(80000000);
-
-	vector<uint8_t> opushead = OpusHeader(channels, 0, samplingRate, 0);
-	audio->SetCodecPrivate(opushead.data(), opushead.size());
 
 	// The next frame to write.
-	const int frameLen = samplingRate * frameLenMs / 1000;
+	const int samplesPerFramePerChannel = samplingRate * frameLen / 1000000;
 	// The audio from libsoundio for one frame.
-	uint8_t audio_frame_input[frameLen * sizeof(int16_t) * channels];
+	uint8_t audio_frame_input[samplesPerFramePerChannel * sizeof(int16_t) * channels];
 
 	// Number of bytes in the frame we have filled.
 	unsigned int frameFilled = 0;
-
-	// Frame time in nanoseconds.
-	uint64_t timecode = 0;
 
 	// Set up ctrl-c handler.
 	SetCtrlCHandler(CtrlC);
@@ -482,45 +375,25 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 				for (int s = 0; s < frameLen; ++s)
 				{
 					// Just take the first channel for now. TODO: Fix this.
-					int o = s * sizeof(int16_t) * channels;
-					audio_frame[s] = static_cast<int16_t>(audio_frame_input[o+1] << 8) + audio_frame_input[o];
+					int32_t av = 0;
+					for (int c = 0; c < channels; ++c)
+					{
+						int idx = (s * channels + c) * sizeof(int16_t);
+						int16_t sample = static_cast<int16_t>(audio_frame_input[idx+1] << 8) + audio_frame_input[idx];
+						av += sample;
+					}
+					av /= channels;
+					audio_frame[s] = av;
 				}
 
 				// Encode to Opus.
-				const int max_packet = 1024 * 128; // TODO: What should this be?
-				uint8_t packet[max_packet];
-
-				opus_int32 len = opus_encode(enc, reinterpret_cast<const int16_t*>(audio_frame), frameLen, packet, max_packet);
-				if (len < 0)
+				
+				writer.write(audio_frame, frameLen);
+				
+				if (writer.status() != OpusReader::Status_Ok)
 				{
-					// Error.
-					cerr << "Opus encoder error: " << len << endl;
-					return;
-				}
-				if (len <= 2)
-				{
-					// Ignore packet (it's silent).
-					// TODO: How do you handle this?
-				}
-
-				// Save it into a WebM stream.
-				mkvmuxer::Frame muxer_frame;
-				if (!muxer_frame.Init(packet, len))
-				{
-					cerr << "Couldn't initialise muxer frame." << endl;
-					return;
-				}
-
-				muxer_frame.set_track_number(aud_track);
-				muxer_frame.set_timestamp(timecode); // In nanoseconds.
-
-				timecode += frameLenMs * 1000000;
-
-				muxer_frame.set_is_key(true); // Does this do anything for audio?
-
-				if (!muxer_segment.AddGenericFrame(&muxer_frame))
-				{
-					cerr << "Could not add frame." << endl;
+					// TODO: Convert to string.
+					cerr << "Opus writer error: " << writer.status() << endl;
 					return;
 				}
 			}
@@ -531,16 +404,10 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 	soundio_instream_destroy(instream);
 	soundio_device_unref(device);
 	
-	// Destroy Opus encoder.
-	opus_encoder_destroy(enc);
-
-	if (!muxer_segment.Finalize())
+	if (!writer.close())
 	{
-		cerr << "Finalization of segment failed." << endl;
-		return;
+		cerr << "Error closing file." << endl;
 	}
-
-	writer.Close();
 }
 
 static const char USAGE[] =
@@ -667,9 +534,9 @@ int main(int argc, char* argv[])
 	{
 		string device_id = args["--device"].isString() ? args["--device"].asString() : "";
 		bool is_raw = args["--raw"].isBool() ? args["--raw"].asBool() : false;
-		int samplingRate = intOpt("--rate", 44100);
+		int samplingRate = intOpt("--rate", 48000);
 		int channels = intOpt("--channels", 2);
-		int complexity = intOpt("--complexity", 7);
+		int complexity = intOpt("--complexity", 10);
 		int bitrate = intOpt("--bitrate", 64000);
 		int duration = intOpt("--duration", -1);
 		string outfile = stringOpt("<output_file>", "");

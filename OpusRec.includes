@@ -3,3 +3,8 @@ subprojects/docopt/docopt
 subprojects/libsoundio/libsoundio
 subprojects/libwebm/libwebm
 subprojects/opus/opus/include
+subprojects/opus/opus/src
+subprojects/opus/opus/celt
+subprojects/opus/opus/silk
+subprojects/libsoundio/libsoundio/src
+subprojects/libsoundio/libsoundio/soundio
