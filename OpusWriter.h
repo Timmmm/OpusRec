@@ -12,7 +12,7 @@
 // Simple class to write audio to a WebM file (basically Matroska)
 // encoded in Opus. It always uses 16-bit samples and supports mono
 // and stereo.
-class OpusReader
+class OpusWriter
 {
 public:
 	// Frame length in microseconds.
@@ -61,13 +61,13 @@ public:
 		Complexity_10 = 10,
 	};
 	
-	OpusReader(std::string filename,
+	OpusWriter(std::string filename,
 	           SamplingRate samplingRate,
 	           Channels channels,
 	           FrameLength frameLength,
 	           int bitrate,
 	           ComputationalComplexity complexity);
-	~OpusReader();
+	~OpusWriter();
 	
 	enum Status
 	{
@@ -92,8 +92,8 @@ public:
 	bool close();
 
 private:
-	OpusReader(const OpusReader&) = delete;
-	OpusReader& operator=(const OpusReader&) = delete;
+	OpusWriter(const OpusWriter&) = delete;
+	OpusWriter& operator=(const OpusWriter&) = delete;
 	
 	Status mStatus = Status_Error;
 	

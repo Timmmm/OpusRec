@@ -310,16 +310,16 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 
 
 	// Ok now initialise Opus. Default 20ms is best.
-	const OpusReader::FrameLength frameLen = OpusReader::Frame_20ms;
+	const OpusWriter::FrameLength frameLen = OpusWriter::Frame_20ms;
 	
-	OpusReader writer(outfile,
-	                  static_cast<OpusReader::SamplingRate>(samplingRate),
-		              static_cast<OpusReader::Channels>(channels),
+	OpusWriter writer(outfile,
+	                  static_cast<OpusWriter::SamplingRate>(samplingRate),
+		              static_cast<OpusWriter::Channels>(channels),
 		              frameLen,
 		              bitrate,
-		              static_cast<OpusReader::ComputationalComplexity>(complexity));
+		              static_cast<OpusWriter::ComputationalComplexity>(complexity));
 	
-	if (writer.status() != OpusReader::Status_Ok)
+	if (writer.status() != OpusWriter::Status_Ok)
 	{
 		cerr << "Opus error: " << writer.status() << endl; // TODO: Convert to readable string.
 		return;
@@ -390,7 +390,7 @@ void record(SoundIo* soundio, string device_id, bool is_raw, int samplingRate, i
 				
 				writer.write(audio_frame, frameLen);
 				
-				if (writer.status() != OpusReader::Status_Ok)
+				if (writer.status() != OpusWriter::Status_Ok)
 				{
 					// TODO: Convert to string.
 					cerr << "Opus writer error: " << writer.status() << endl;

@@ -30,19 +30,19 @@ static std::vector<uint8_t> OpusHeader(uint8_t channelCount, uint16_t preSkipSam
 	return head;
 }
 
-OpusReader::~OpusReader()
+OpusWriter::~OpusWriter()
 {
 	close();
 	if (mEncoder != nullptr)
 		opus_encoder_destroy(mEncoder);
 }
 
-OpusReader::OpusReader(std::string filename,
-                       OpusReader::SamplingRate samplingRate,
-                       OpusReader::Channels channels,
-                       OpusReader::FrameLength frameLength,
+OpusWriter::OpusWriter(std::string filename,
+                       OpusWriter::SamplingRate samplingRate,
+                       OpusWriter::Channels channels,
+                       OpusWriter::FrameLength frameLength,
                        int bitrate,
-                       OpusReader::ComputationalComplexity complexity)
+                       OpusWriter::ComputationalComplexity complexity)
 {
 	// samplingRate must be one of 8000, 12000, 16000, 24000, or 48000.
 	if (samplingRate != Rate_8000 &&
@@ -182,12 +182,12 @@ OpusReader::OpusReader(std::string filename,
 	mStatus = Status_Ok;
 }
 
-OpusReader::Status OpusReader::status() const
+OpusWriter::Status OpusWriter::status() const
 {
 	return mStatus;
 }
 
-bool OpusReader::write(const int16_t *samples, int sampleCount)
+bool OpusWriter::write(const int16_t *samples, int sampleCount)
 {
 	if (mEncoder == nullptr)
 		return false;
@@ -236,7 +236,7 @@ bool OpusReader::write(const int16_t *samples, int sampleCount)
 	return true;
 }
 
-bool OpusReader::close()
+bool OpusWriter::close()
 {
 	bool success = true;
 	if (mFinalize)
